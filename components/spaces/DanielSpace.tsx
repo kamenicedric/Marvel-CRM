@@ -101,6 +101,7 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
   const [showAttendanceModal, setShowAttendanceModal] = useState(false);
   const [attendanceMode, setAttendanceMode] = useState<'SELFIE' | 'BIO'>('SELFIE');
   const [selfiePreview, setSelfiePreview] = useState<string | null>(null);
+  const [hasBiometricCredential, setHasBiometricCredential] = useState<boolean | null>(null);
   const selfieVideoRef = useRef<HTMLVideoElement>(null);
   const selfieCanvasRef = useRef<HTMLCanvasElement>(null);
   const selfieStreamRef = useRef<MediaStream | null>(null);
@@ -361,7 +362,7 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
     return selfieCanvasRef.current.toDataURL('image/jpeg', 0.9);
   };
 
-  const runBiometricStep = async () => {
+  const runBiometricStep = async (allowRegistration: boolean = false) => {
     setAttendanceError(null);
     if (!member?.id) {
       setBioStatus('fail');
@@ -383,24 +384,87 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
     try {
       // VÉRIFIER QUE L'EMPLOYÉ A DES EMPREINTES ENREGISTRÉES DANS LA BASE DE DONNÉES
       const existingCredentials = await biometricService.getCredentialsByEmployee(member.id);
-      if (!existingCredentials || existingCredentials.length === 0) {
-        setBioStatus('fail');
-        throw new Error('Aucune empreinte digitale enregistrée. Veuillez d\'abord enregistrer votre empreinte.');
+      const hasCredentials = existingCredentials && existingCredentials.length > 0;
+      
+      // Si aucun credential et qu'on autorise l'enregistrement, créer un nouveau credential
+      if (!hasCredentials && allowRegistration) {
+        const challenge = crypto.getRandomValues(new Uint8Array(32));
+        const publicKey: PublicKeyCredentialCreationOptions = {
+          challenge,
+          rp: { name: "Marvel CRM", id: window.location.hostname },
+          user: { 
+            id: Uint8Array.from(member.id.slice(0, 64), (c: string) => c.charCodeAt(0)), 
+            name: member.email || `${member.full_name}@marvel.com`, 
+            displayName: member.full_name || "Employee" 
+          },
+          pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+          timeout: 60000,
+          authenticatorSelection: { 
+            authenticatorAttachment: "platform",
+            userVerification: "required" 
+          },
+          attestation: "direct"
+        };
+
+        const newCredential = await navigator.credentials.create({ publicKey }) as PublicKeyCredential;
+        
+        if (newCredential && 'response' in newCredential) {
+          const response = newCredential.response as AuthenticatorAttestationResponse;
+          const credentialId = btoa(String.fromCharCode(...new Uint8Array(newCredential.rawId)));
+          const publicKeyPem = btoa(String.fromCharCode(...new Uint8Array(response.getPublicKey() || [])));
+          
+          // Enregistrer dans Supabase
+          await biometricService.registerCredential(
+            member.id,
+            credentialId,
+            publicKeyPem,
+            navigator.userAgent.includes('Mobile') ? 'Mobile Device' : 'Desktop'
+          );
+          
+          // Mettre à jour le statut pour l'UI
+          setHasBiometricCredential(true);
+          setBioStatus('ok');
+          return true; // Enregistrement réussi, on peut maintenant pointer
+        }
       }
       
-      // Utiliser le premier credential enregistré pour l'authentification
-      const credentialId = existingCredentials[0].credential_id;
+      // Si toujours pas de credentials après tentative d'enregistrement
+      if (!hasCredentials) {
+        setBioStatus('fail');
+        throw new Error('ENREGISTREMENT_REQUIRED'); // Code spécial pour déclencher l'enregistrement
+      }
+      
+      // Détecter le type d'appareil actuel pour utiliser le bon credential
+      const isMobile = navigator.userAgent.includes('Mobile') || 
+                       /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const deviceType = isMobile ? 'Mobile Device' : 'Desktop';
+      
+      // Essayer de trouver le credential correspondant à l'appareil actuel
+      let credentialToUse = existingCredentials.find(c => 
+        c.device_name?.includes(deviceType) || 
+        (isMobile && c.device_name?.includes('Mobile')) ||
+        (!isMobile && c.device_name?.includes('Desktop'))
+      );
+      
+      // Si aucun credential spécifique trouvé, utiliser le plus récent
+      if (!credentialToUse) {
+        credentialToUse = existingCredentials[0];
+      }
+      
+      const credentialId = credentialToUse.credential_id;
       const challenge = crypto.getRandomValues(new Uint8Array(32));
       
+      // Si plusieurs credentials existent, permettre au navigateur de choisir automatiquement
+      // en ne limitant pas aux transports 'internal' uniquement
       const publicKey: PublicKeyCredentialRequestOptions = {
         challenge,
         timeout: 60000,
         rpId: window.location.hostname,
-        allowCredentials: [{
-          id: Uint8Array.from(atob(credentialId), (c: string) => c.charCodeAt(0)),
-          type: 'public-key',
-          transports: ['internal']
-        }],
+        allowCredentials: existingCredentials.map(cred => ({
+          id: Uint8Array.from(atob(cred.credential_id), (c: string) => c.charCodeAt(0)),
+          type: 'public-key' as const,
+          // Ne pas limiter les transports pour permettre au navigateur de choisir automatiquement
+        })),
         userVerification: 'required',
       };
       
@@ -439,6 +503,12 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
   useEffect(() => {
     if (activeTab === 'pointage') {
       loadTodayAttendance();
+      // Vérifier si l'employé a une empreinte enregistrée
+      if (member?.id) {
+        biometricService.getCredentialsByEmployee(member.id)
+          .then(creds => setHasBiometricCredential(creds.length > 0))
+          .catch(() => setHasBiometricCredential(false));
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, member?.id]);
@@ -486,7 +556,31 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
         stopSelfieStream();
         setShowAttendanceModal(false);
       } else {
-        await runBiometricStep();
+        // Mode BIO : vérifier si l'employé a une empreinte, sinon l'enregistrer automatiquement
+        try {
+          await runBiometricStep(false); // Essayer d'abord sans enregistrement
+        } catch (e: any) {
+          // Si erreur "ENREGISTREMENT_REQUIRED", proposer l'enregistrement
+          if (e?.message === 'ENREGISTREMENT_REQUIRED') {
+            const confirmRegister = window.confirm(
+              'Aucune empreinte digitale enregistrée.\n\n' +
+              'Voulez-vous enregistrer votre empreinte maintenant ?\n\n' +
+              'Cliquez sur OK pour enregistrer votre empreinte digitale.'
+            );
+            
+            if (confirmRegister) {
+              // Enregistrer automatiquement l'empreinte
+              await runBiometricStep(true); // Autoriser l'enregistrement
+              alert('✅ Empreinte digitale enregistrée avec succès ! Vous pouvez maintenant pointer.');
+            } else {
+              throw new Error('Enregistrement de l\'empreinte annulé. Utilisez le mode Selfie pour pointer.');
+            }
+          } else {
+            throw e; // Propager les autres erreurs
+          }
+        }
+        
+        // Maintenant pointer avec l'empreinte
         const r = await attendanceCheckIn({
           employeeId: member.id,
           lat: coords.lat,
@@ -1004,14 +1098,20 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
                     ) : (
                       <div className="space-y-4">
                         <div className="p-5 rounded-3xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-white/60">
-                          Appuie sur “Valider empreinte” (WebAuthn). Si l’appareil ne supporte pas, le système refusera.
+                          {hasBiometricCredential === false ? (
+                            <span className="text-amber-300">
+                              ⚠️ Première utilisation : Cliquez sur "Valider empreinte" pour enregistrer votre empreinte digitale. Le système vous guidera automatiquement.
+                            </span>
+                          ) : (
+                            'Appuie sur "Valider empreinte" (WebAuthn). Si l\'appareil ne supporte pas, le système refusera.'
+                          )}
                         </div>
                         <button
                           onClick={submitAttendance}
                           disabled={attendanceLoading}
                           className="w-full py-4 rounded-2xl bg-[#B6C61A] text-[#006344] text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                         >
-                          {attendanceLoading ? <Loader2 className="animate-spin" size={16} /> : <><Fingerprint size={16} /> Valider empreinte</>}
+                          {attendanceLoading ? <Loader2 className="animate-spin" size={16} /> : <><Fingerprint size={16} /> {hasBiometricCredential === false ? 'Enregistrer & Valider empreinte' : 'Valider empreinte'}</>}
                         </button>
                       </div>
                     )}
