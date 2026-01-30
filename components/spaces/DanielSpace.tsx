@@ -23,7 +23,8 @@ import {
   Landmark, Calendar as CalendarIcon, ChevronLeft,
   Scissors, Film, Mic2, AlertOctagon, Send, ChevronRight as ChevronRightIcon,
   SearchCheck, Briefcase, ArrowUpRight, Award,
-  Image as ImageIcon, Fingerprint, ScanFace, Lock, Camera
+  Image as ImageIcon, Fingerprint, ScanFace, Lock, Camera,
+  Bell
 } from 'lucide-react';
 
 interface EmployeeSpaceProps {
@@ -51,6 +52,17 @@ interface UnifiedMission {
   time_spent?: number; // en secondes
   evaluation_comment?: string;
   reports?: TeaserReport[];
+}
+
+interface AppNotification {
+  id: string;
+  type: 'new_mission' | 'overdue' | 'validation' | 'comment' | 'reminder';
+  title: string;
+  message: string;
+  date: Date;
+  read: boolean;
+  missionId?: string;
+  projectId?: string;
 }
 
 const industrialDays = (sec: number) => (sec / (9 * 3600)).toFixed(1);
@@ -109,6 +121,27 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
   // États Signalement
   const [reportCategory, setReportCategory] = useState<TeaserReport['category']>('Montage');
   const [reportText, setReportText] = useState('');
+  const [teaserReports, setTeaserReports] = useState<TeaserReport[]>([]);
+  
+  // États Notifications
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [previousMissionsCount, setPreviousMissionsCount] = useState(0);
+  
+  // Calculer les compteurs et rapports filtrés
+  const reportCounts = useMemo(() => {
+    const counts: Record<string, number> = { Cadrage: 0, Montage: 0, Rush: 0, Son: 0 };
+    teaserReports.forEach(r => {
+      if (r.status === 'Open') counts[r.category]++;
+    });
+    return counts;
+  }, [teaserReports]);
+  
+  const filteredReports = useMemo(() => {
+    return teaserReports.filter(r => r.category === reportCategory).sort((a, b) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+  }, [teaserReports, reportCategory]);
   
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -138,6 +171,17 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
     return () => clearInterval(clockTimer);
   }, [isClockedIn]);
 
+  // Timer pour le chrono du cockpit (mission active)
+  useEffect(() => {
+    if (!isWorking || !activeMissionId) return;
+    
+    const missionTimer = setInterval(() => {
+      setElapsedSeconds(prev => prev + 1);
+    }, 1000);
+
+    return () => clearInterval(missionTimer);
+  }, [isWorking, activeMissionId]);
+
   const fetchData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
@@ -147,14 +191,19 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
       ]);
       setTasks(allTasks);
       setProjects(allProjects as any);
-    } catch (err) {
-      console.error("Erreur synchro EmployeeSpace:", err);
+    } catch (err: any) {
+      // Ignorer les erreurs AbortError (requêtes annulées)
+      if (err?.name !== 'AbortError' && !err?.message?.includes('aborted') && !err?.message?.includes('signal is aborted')) {
+        console.error("Erreur synchro EmployeeSpace:", err);
+      }
     } finally {
       if (!silent) setLoading(false);
     }
   };
 
-  useEffect(() => { fetchData(); }, [member]);
+  useEffect(() => { 
+    fetchData(); 
+  }, [member]);
 
   const combinedMissions = useMemo(() => {
     // ... (Logique inchangée)
@@ -208,6 +257,115 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
   }, [tasks, projects, employeeName]);
 
   const activeMission = useMemo(() => combinedMissions.find(m => m.id === activeMissionId), [combinedMissions, activeMissionId]);
+
+  // Charger le temps investi quand une mission est sélectionnée
+  useEffect(() => {
+    if (activeMission) {
+      const timeSpent = activeMission.time_spent || 0;
+      setElapsedSeconds(timeSpent);
+    } else {
+      setElapsedSeconds(0);
+    }
+  }, [activeMission]);
+
+  // Système de notifications
+  useEffect(() => {
+    const newNotifications: AppNotification[] = [];
+    const now = new Date();
+    
+    // Détecter nouvelles missions
+    const currentMissionsCount = combinedMissions.filter(m => 
+      m.status !== 'Terminé' && m.status !== 'Livré S++' && m.status !== 'LIVRÉ S++'
+    ).length;
+    
+    if (previousMissionsCount > 0 && currentMissionsCount > previousMissionsCount) {
+      const newMissions = combinedMissions.filter(m => 
+        m.status !== 'Terminé' && m.status !== 'Livré S++' && m.status !== 'LIVRÉ S++'
+      ).slice(previousMissionsCount);
+      
+      newMissions.forEach(mission => {
+        newNotifications.push({
+          id: `new-${mission.id}-${Date.now()}`,
+          type: 'new_mission',
+          title: 'Nouvelle mission assignée',
+          message: `${mission.couple} - ${mission.title}`,
+          date: now,
+          read: false,
+          missionId: mission.id,
+          projectId: mission.projectId
+        });
+      });
+    }
+    setPreviousMissionsCount(currentMissionsCount);
+    
+    // Détecter missions en retard
+    combinedMissions.forEach(mission => {
+      if (mission.status !== 'Terminé' && mission.status !== 'Livré S++' && mission.deadline) {
+        const deadline = new Date(mission.deadline);
+        if (deadline < now && mission.status !== 'Attente Validation') {
+          newNotifications.push({
+            id: `overdue-${mission.id}-${Date.now()}`,
+            type: 'overdue',
+            title: 'Mission en retard',
+            message: `${mission.couple} - ${mission.title} (DLC: ${deadline.toLocaleDateString('fr-FR')})`,
+            date: now,
+            read: false,
+            missionId: mission.id,
+            projectId: mission.projectId
+          });
+        }
+      }
+    });
+    
+    // Détecter missions en attente de validation (retour de Narcisse)
+    combinedMissions.forEach(mission => {
+      if (mission.status === 'Attente Validation') {
+        newNotifications.push({
+          id: `validation-${mission.id}-${Date.now()}`,
+          type: 'validation',
+          title: 'Mission en validation',
+          message: `${mission.couple} - ${mission.title} est en cours de validation par Narcisse`,
+          date: now,
+          read: false,
+          missionId: mission.id,
+          projectId: mission.projectId
+        });
+      }
+    });
+    
+    if (newNotifications.length > 0) {
+      setNotifications(prev => {
+        // Éviter les doublons
+        const existingIds = new Set(prev.map(n => n.id));
+        const uniqueNew = newNotifications.filter(n => !existingIds.has(n.id));
+        return [...uniqueNew, ...prev].slice(0, 50); // Limiter à 50 notifications
+      });
+    }
+  }, [combinedMissions, previousMissionsCount]);
+
+  const unreadCount = useMemo(() => 
+    notifications.filter(n => !n.read).length, 
+    [notifications]
+  );
+
+  const handleNotificationClick = (notification: AppNotification) => {
+    // Marquer comme lu
+    setNotifications(prev => 
+      prev.map(n => n.id === notification.id ? { ...n, read: true } : n)
+    );
+    
+    // Si c'est une mission, la sélectionner
+    if (notification.missionId) {
+      setActiveMissionId(notification.missionId);
+      setActiveTab('cockpit');
+    }
+    
+    setShowNotifications(false);
+  };
+
+  const markAllAsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  };
 
   // ... (Calculs statsBonus et financeData inchangés) ...
   const statsBonus = useMemo(() => {
@@ -486,22 +644,57 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
     }
   };
 
+  // Cache simple pour éviter les requêtes répétées
+  const attendanceCacheRef = useRef<{ employeeId: string; data: any; timestamp: number } | null>(null);
+  const CACHE_DURATION = 30000; // 30 secondes de cache
+
   const loadTodayAttendance = async () => {
     if (!member?.id) return;
-    try {
-      const r = await attendanceMe(member.id);
-      const entries = r.entries || [];
+    
+    // Vérifier le cache
+    const cached = attendanceCacheRef.current;
+    if (cached && cached.employeeId === member.id && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+      const entries = cached.data.entries || [];
       if (entries.length > 0) {
         setAttendanceEntry(entries[0]);
         setDistanceToZoneMeters(entries[0].distance_meters ?? null);
       }
-    } catch {
-      // ignore (on garde l'UX fluide)
+      return;
+    }
+
+    try {
+      const r = await attendanceMe(member.id);
+      // Mettre en cache
+      attendanceCacheRef.current = {
+        employeeId: member.id,
+        data: r,
+        timestamp: Date.now()
+      };
+      
+      const entries = r.entries || [];
+      if (entries.length > 0) {
+        setAttendanceEntry(entries[0]);
+        setDistanceToZoneMeters(entries[0].distance_meters ?? null);
+      } else {
+        setAttendanceEntry(null);
+        setDistanceToZoneMeters(null);
+      }
+    } catch (err: any) {
+      // Ignorer les erreurs AbortError (requêtes annulées)
+      if (err?.name !== 'AbortError' && !err?.message?.includes('aborted')) {
+        console.warn('Erreur chargement pointage:', err);
+      }
+      // On garde l'UX fluide même en cas d'erreur
     }
   };
 
   useEffect(() => {
     if (activeTab === 'pointage') {
+      // Invalider le cache si l'employé change
+      if (attendanceCacheRef.current?.employeeId !== member?.id) {
+        attendanceCacheRef.current = null;
+      }
+      
       loadTodayAttendance();
       // Vérifier si l'employé a une empreinte enregistrée
       if (member?.id) {
@@ -857,10 +1050,80 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // ... (Reste des fonctions saveCurrentTime, handleUpdateStatus, etc. inchangées)
-  const saveCurrentTime = async (seconds: number) => { /* ... */ };
-  const handleUpdateStatus = async (mission: UnifiedMission, newStatus: string) => { /* ... */ };
-  const handleSendReport = async () => { /* ... */ };
+  // Sauvegarder le temps investi dans la mission
+  const saveCurrentTime = async (seconds: number) => {
+    if (!activeMission) return;
+    try {
+      if (activeMission.type === 'task') {
+        await tasksService.update(activeMission.id, { 
+          time_spent: seconds 
+        } as any);
+      } else if (activeMission.type === 'module' && activeMission.moduleId) {
+        const project = projects.find(p => p.id === activeMission.projectId);
+        if (project) {
+          const teaserData = { ...(project.teaser_data as any) };
+          if (!teaserData.time_spent) teaserData.time_spent = {};
+          teaserData.time_spent[activeMission.moduleId] = seconds;
+          await projectsService.update(project.id, { teaser_data: teaserData });
+        }
+      }
+      await fetchData(true); // Recharger silencieusement
+    } catch (err) {
+      console.error('Erreur sauvegarde temps:', err);
+    }
+  };
+
+  // Mettre à jour le statut d'une mission
+  const handleUpdateStatus = async (mission: UnifiedMission, newStatus: string) => {
+    setIsSyncing(true);
+    try {
+      if (mission.type === 'task') {
+        await tasksService.update(mission.id, { status: newStatus as any });
+      } else if (mission.type === 'module' && mission.moduleId) {
+        const project = projects.find(p => p.id === mission.projectId);
+        if (project) {
+          const teaserData = { ...(project.teaser_data as any) };
+          if (!teaserData.module_status) teaserData.module_status = {};
+          teaserData.module_status[mission.moduleId] = newStatus;
+          
+          // Si tous les modules sont terminés, mettre le statut global à "Terminé"
+          const allDone = Object.values(teaserData.module_status).every(v => v === 'Terminé' || v === 'Livré S++');
+          if (allDone) {
+            teaserData.status = 'Terminé';
+          } else if (newStatus === 'En cours') {
+            teaserData.status = 'En cours';
+          }
+          
+          await projectsService.update(project.id, { teaser_data: teaserData });
+        }
+      }
+      await fetchData();
+    } catch (err) {
+      console.error('Erreur mise à jour statut:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+  const handleSendReport = async () => {
+    if (!reportText.trim() || !activeMission) return;
+    setIsSyncing(true);
+    try {
+      const newReport: TeaserReport = {
+        id: Date.now().toString(),
+        category: reportCategory,
+        message: reportText.trim(),
+        date: new Date().toISOString(),
+        status: 'Open'
+      };
+      setTeaserReports(prev => [newReport, ...prev]);
+      setReportText('');
+      // Ici, tu pourrais sauvegarder dans Supabase si nécessaire
+    } catch (err) {
+      console.error('Erreur envoi rapport:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
   const formatTime = (sec: number) => { const h = Math.floor(sec/3600); const m = Math.floor((sec%3600)/60); const s = sec%60; return `${h}h ${m}m ${s}s`; };
   const handleQuickView = (mission: UnifiedMission) => { const p = projects.find(proj => proj.id === mission.projectId); if (p) setQuickViewProject(p); };
 
@@ -869,36 +1132,158 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
       
       {!isFocusMode && (
         <>
-          {/* Header Carte d'Identité */}
-          <div className="bg-white p-6 rounded-[3rem] border border-slate-100 shadow-sm flex items-center justify-between">
-             <div className="flex items-center gap-6">
-                <div className="w-16 h-16 bg-[#006344] text-[#B6C61A] rounded-[2rem] flex items-center justify-center text-2xl font-black italic shadow-lg">
-                   {employeeName.charAt(0)}
+          {/* Performance Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            {/* PERFORMANCE Card */}
+            <div className="bg-[#006344] p-6 rounded-[2rem] shadow-xl relative overflow-hidden">
+              <div className="absolute bottom-0 left-0 right-0 h-8 bg-[#B6C61A]"></div>
+              <div className="relative z-10">
+                <Trophy size={32} className="text-yellow-400 mb-4" />
+                <p className="text-[10px] font-black text-[#B6C61A] uppercase tracking-widest mb-2">PERFORMANCE</p>
+                <p className="text-2xl font-black text-[#B6C61A] uppercase italic">NIVEAU S++</p>
+              </div>
+            </div>
+
+            {/* CAPITAL PRIME Card */}
+            <div className="bg-pink-50 p-6 rounded-[2rem] shadow-lg border border-pink-100">
+              <div className="relative mb-4">
+                <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center relative">
+                  <Coins size={24} className="text-white" />
+                  <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-600 rounded-full flex items-center justify-center border-2 border-white">
+                    <span className="text-[8px] font-black text-white">1</span>
+                  </div>
                 </div>
-                <div>
-                   <h1 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter">Espace {employeeName}</h1>
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mt-1 italic">
-                      {member?.role || 'Membre Équipe'} // Production Unit
-                   </p>
-                </div>
-             </div>
-             <div className={`px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${isClockedIn ? 'bg-emerald-50 text-emerald-600 animate-pulse' : 'bg-slate-100 text-slate-400'}`}>
-                {isClockedIn ? 'SESSION ACTIVE' : 'HORS LIGNE'}
-             </div>
+              </div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">CAPITAL PRIME</p>
+              <p className="text-3xl font-black text-red-600 tabular-nums">{statsBonus.prime.toLocaleString('fr-FR')} F</p>
+            </div>
+
+            {/* MODULES FINIS Card */}
+            <div className="bg-white p-6 rounded-[2rem] shadow-lg border border-slate-100">
+              <Target size={32} className="text-[#006344] mb-4" />
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">MODULES FINIS</p>
+              <div className="flex items-baseline gap-1">
+                <p className="text-4xl font-black text-slate-900">{statsBonus.count}</p>
+                <span className="text-2xl font-black text-slate-400">/</span>
+                <p className="text-4xl font-black text-slate-900">8</p>
+              </div>
+            </div>
+
+            {/* OBJECTIF STATUS ALPHA Card */}
+            <div className="bg-blue-900 p-6 rounded-[2rem] shadow-xl">
+              <Flame size={32} className="text-yellow-400 mb-4" />
+              <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-2">OBJECTIF</p>
+              <p className="text-2xl font-black text-[#B6C61A] uppercase italic">STATUS ALPHA</p>
+            </div>
           </div>
 
-          <div className="flex bg-white p-2 rounded-3xl border border-slate-100 shadow-inner w-fit overflow-x-auto no-scrollbar">
+          {/* Notifications Bell */}
+          <div className="fixed top-6 right-6 z-50">
+            <div className="relative">
+              <button
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-4 bg-white rounded-full shadow-lg border border-slate-100 hover:shadow-xl transition-all hover:scale-105 active:scale-95"
+              >
+                <Bell size={24} className="text-slate-600" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-black border-2 border-white">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+              
+              {/* Dropdown Notifications */}
+              {showNotifications && (
+                <div className="absolute top-full right-0 mt-2 w-96 bg-white rounded-[2rem] shadow-2xl border border-slate-100 overflow-hidden">
+                  <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                    <h3 className="text-sm font-black text-[#006344] uppercase italic">Notifications</h3>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={markAllAsRead}
+                        className="text-xs font-black text-[#006344] hover:underline"
+                      >
+                        Tout marquer comme lu
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-96 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="p-8 text-center">
+                        <Bell size={48} className="mx-auto mb-3 text-slate-200" />
+                        <p className="text-sm font-black text-slate-400 uppercase italic">Aucune notification</p>
+                      </div>
+                    ) : (
+                      notifications.map(notif => (
+                        <button
+                          key={notif.id}
+                          onClick={() => handleNotificationClick(notif)}
+                          className={`w-full p-4 border-b border-slate-50 hover:bg-slate-50 transition-all text-left ${
+                            !notif.read ? 'bg-blue-50/50' : ''
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`w-2 h-2 rounded-full mt-2 ${
+                              !notif.read ? 'bg-[#006344]' : 'bg-transparent'
+                            }`} />
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between mb-1">
+                                <p className={`text-xs font-black uppercase ${
+                                  !notif.read ? 'text-[#006344]' : 'text-slate-600'
+                                }`}>
+                                  {notif.title}
+                                </p>
+                                <span className="text-[9px] font-bold text-slate-400">
+                                  {notif.date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              <p className="text-sm font-medium text-slate-700 italic">
+                                {notif.message}
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Navigation Bar */}
+          <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-inner flex items-center justify-around">
             {[
               { id: 'cockpit', label: 'Cockpit', icon: LayoutGrid },
               { id: 'pointage', label: 'Pointage', icon: Timer },
-              { id: 'historique', label: 'Journal', icon: History },
+              { id: 'historique', label: 'Journal', icon: RotateCcw },
               { id: 'finance', label: 'Finances', icon: Wallet },
-              { id: 'bonus', label: 'Bonus Tracker', icon: TrendingUp },
             ].map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-3 px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-[#006344] text-white shadow-xl scale-105' : 'text-slate-400 hover:text-slate-600'}`}>
-                <tab.icon size={16} /> {tab.label}
+              <button 
+                key={tab.id} 
+                onClick={() => setActiveTab(tab.id as any)} 
+                className={`flex flex-col items-center gap-2 px-6 py-3 rounded-2xl transition-all ${
+                  activeTab === tab.id 
+                    ? 'bg-[#006344] text-white' 
+                    : 'text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                <tab.icon size={20} />
+                <span className="text-[9px] font-black uppercase tracking-wider">{tab.label}</span>
               </button>
             ))}
+            <button 
+              onClick={() => setActiveTab('bonus')}
+              className={`px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-wider transition-all ${
+                activeTab === 'bonus'
+                  ? 'bg-[#006344] text-white shadow-lg'
+                  : 'bg-[#006344] text-white shadow-md hover:shadow-lg'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <TrendingUp size={18} />
+                <span>BONUS TRACKER</span>
+              </div>
+            </button>
           </div>
         </>
       )}
@@ -1173,19 +1558,341 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
         </div>
       )}
 
-      {/* COCKPIT et autres onglets restent inchangés... (Utilisation du code précédent pour activeTab === 'cockpit', etc.) */}
+      {/* VUE JOURNAL DES MISSIONS */}
+      {activeTab === 'historique' && (
+        <div className="space-y-8 animate-in fade-in duration-500">
+          <div className="bg-white p-12 rounded-[4rem] shadow-2xl border border-slate-100">
+            {/* Header */}
+            <div className="flex items-center gap-4 mb-10 pb-8 border-b border-slate-50">
+              <div className="w-16 h-16 rounded-[2rem] flex items-center justify-center text-[#B6C61A]">
+                <RotateCcw size={32} className="text-[#B6C61A]" />
+              </div>
+              <h2 className="text-3xl font-black uppercase italic tracking-tighter text-[#006344]">
+                JOURNAL DES MISSIONS {employeeName.toUpperCase()}
+              </h2>
+            </div>
+
+            {/* Liste des missions */}
+            <div className="space-y-4">
+              {combinedMissions
+                .filter(m => 
+                  m.status === 'Terminé' || 
+                  m.status === 'Livré S++' || 
+                  m.status === 'Attente Validation' ||
+                  m.status === 'LIVRÉ S++'
+                )
+                .sort((a, b) => {
+                  // Trier par date de deadline décroissante (plus récent en premier)
+                  const dateA = new Date(a.deadline || 0).getTime();
+                  const dateB = new Date(b.deadline || 0).getTime();
+                  return dateB - dateA;
+                })
+                .map((mission, index) => {
+                  const project = projects.find(p => p.id === mission.projectId);
+                  const missionDate = mission.deadline 
+                    ? new Date(mission.deadline).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                    : '';
+                  
+                  const displayStatus = mission.status === 'Terminé' || mission.status === 'Livré S++' || mission.status === 'LIVRÉ S++' 
+                    ? 'LIVRÉ S++' 
+                    : mission.status === 'Attente Validation'
+                    ? 'EN REVUE'
+                    : mission.status;
+                  
+                  return (
+                    <div 
+                      key={mission.id}
+                      className="flex items-center justify-between p-6 bg-slate-50/50 rounded-[2rem] border border-slate-100 hover:border-[#006344]/20 hover:shadow-md transition-all group cursor-pointer"
+                      onClick={() => handleQuickView(mission)}
+                    >
+                      {/* Numéro et détails */}
+                      <div className="flex items-center gap-6 flex-1">
+                        {/* Numéro d'index */}
+                        <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-[#006344] font-black text-lg shadow-sm flex-shrink-0">
+                          {index + 1}
+                        </div>
+                        
+                        {/* Informations mission */}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-lg font-black uppercase italic tracking-tight text-slate-900 mb-1">
+                            {mission.couple}
+                          </h3>
+                          <p className="text-sm font-bold text-slate-500 uppercase tracking-wide">
+                            {mission.title} {missionDate && `• ${missionDate}`}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Statut et temps */}
+                      <div className="flex items-center gap-8 flex-shrink-0">
+                        {/* Statut */}
+                        <div className="text-right">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">STATUS</p>
+                          <p className="text-base font-black uppercase italic text-[#006344] leading-tight">
+                            {displayStatus}
+                          </p>
+                        </div>
+
+                        {/* Temps investi */}
+                        <div className="text-right">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">TEMPS</p>
+                          <p className="text-base font-black uppercase italic text-[#B6C61A] tabular-nums leading-tight">
+                            {formatTime(mission.time_spent || 0)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+              {/* État vide */}
+              {combinedMissions.filter(m => 
+                m.status === 'Terminé' || 
+                m.status === 'Livré S++' || 
+                m.status === 'Attente Validation' ||
+                m.status === 'LIVRÉ S++'
+              ).length === 0 && (
+                <div className="py-20 text-center">
+                  <History size={64} className="mx-auto mb-4 text-slate-200" />
+                  <p className="text-lg font-black text-slate-400 uppercase italic tracking-tight">
+                    Aucune mission terminée
+                  </p>
+                  <p className="text-sm font-bold text-slate-300 uppercase tracking-widest mt-2">
+                    Vos missions terminées apparaîtront ici
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VUE FINANCES */}
+      {activeTab === 'finance' && (
+        <div className="space-y-8 animate-in fade-in duration-500">
+          {/* Header Gouvernance Financière */}
+          <div className="bg-white p-8 rounded-[4rem] shadow-2xl border border-slate-100">
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-6">
+                <div className="w-16 h-16 rounded-[2rem] bg-[#006344] text-[#B6C61A] flex items-center justify-center shadow-lg">
+                  <Landmark size={32} />
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black uppercase italic tracking-tighter text-[#006344]">
+                    GOUVERNANCE FINANCIÈRE
+                  </h2>
+                  <p className="text-sm font-black text-slate-500 uppercase tracking-widest mt-2 italic">
+                    SALAIRE {employeeName.toUpperCase()} // BASE {financeData.baseSalary.toLocaleString('fr-FR')} F
+                  </p>
+                </div>
+              </div>
+              
+              {/* Navigation mois */}
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => setSelectedFinanceMonth(Math.max(0, selectedFinanceMonth - 1))}
+                  className="p-2 text-slate-400 hover:text-[#006344] transition-all"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <div className="flex items-center gap-2 px-6 py-3 bg-slate-50 rounded-2xl">
+                  <CalendarIcon size={18} className="text-[#006344]" />
+                  <span className="text-base font-black uppercase italic text-[#006344]">
+                    {new Date(2025, selectedFinanceMonth).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }).toUpperCase()}
+                  </span>
+                </div>
+                <button 
+                  onClick={() => setSelectedFinanceMonth(Math.min(11, selectedFinanceMonth + 1))}
+                  className="p-2 text-slate-400 hover:text-[#006344] transition-all"
+                >
+                  <ChevronRightIcon size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Cartes résumé */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              {/* Échéance Dettes */}
+              <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">ÉCHÉANCE DETTES</p>
+                <p className="text-4xl font-black text-orange-600 tabular-nums">
+                  -{financeData.totalAdvances.toLocaleString('fr-FR')} F
+                </p>
+              </div>
+
+              {/* Net à Percevoir */}
+              <div className="bg-[#006344] p-6 rounded-[2rem] shadow-lg relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 opacity-10">
+                  <DollarSign size={128} className="text-white" />
+                </div>
+                <p className="text-[10px] font-black text-[#B6C61A] uppercase tracking-widest mb-3 relative z-10">NET À PERCEVOIR</p>
+                <p className="text-4xl font-black text-white tabular-nums relative z-10">
+                  {financeData.netToPay.toLocaleString('fr-FR')} F
+                </p>
+              </div>
+            </div>
+
+            {/* Panneaux Salaire et Avances */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              {/* Salaire + Prime */}
+              <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">SALAIRE + PRIME</p>
+                <p className="text-5xl font-black text-slate-900 tabular-nums">
+                  {(financeData.baseSalary + (financeData.isCurrentMonth ? financeData.activePrime : 0)).toLocaleString('fr-FR')} F
+                </p>
+              </div>
+
+              {/* Avances */}
+              <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">AVANCES (MOIS)</p>
+                <p className={`text-5xl font-black tabular-nums ${financeData.totalAdvances > 0 ? 'text-red-600' : 'text-red-500'}`}>
+                  -{financeData.totalAdvances.toLocaleString('fr-FR')} F
+                </p>
+              </div>
+            </div>
+
+            {/* Journal des Opérations Financières */}
+            <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm">
+              <div className="flex items-center gap-4 mb-6 pb-4 border-b border-slate-50">
+                <DollarSign size={24} className="text-[#006344]" />
+                <h3 className="text-xl font-black uppercase italic text-[#006344]">
+                  JOURNAL DES OPÉRATIONS FINANCIÈRES
+                </h3>
+              </div>
+
+              {/* En-têtes du tableau */}
+              <div className="grid grid-cols-4 gap-4 mb-4 pb-3 border-b border-slate-100">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">DATE / ÉCHÉANCE</p>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">TYPE</p>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">DÉTAILS</p>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">MONTANT</p>
+              </div>
+
+              {/* Ligne Prime de Performance */}
+              {financeData.isCurrentMonth && financeData.activePrime > 0 && (
+                <div className="grid grid-cols-4 gap-4 p-4 bg-emerald-50/30 rounded-2xl mb-2">
+                  <p className="text-sm font-black text-slate-900 uppercase italic">M+0</p>
+                  <span className="px-3 py-1 bg-[#B6C61A] text-white rounded-full text-[10px] font-black uppercase w-fit">
+                    PRIME
+                  </span>
+                  <p className="text-sm font-black uppercase italic text-[#006344]">
+                    PRIME DE PERFORMANCE {employeeName.toUpperCase()}
+                  </p>
+                  <p className="text-sm font-black text-[#006344] text-right tabular-nums">
+                    +{financeData.activePrime.toLocaleString('fr-FR')} F
+                  </p>
+                </div>
+              )}
+
+              {/* Opérations du mois */}
+              {financeData.monthOps.map((op) => (
+                <div key={op.id} className="grid grid-cols-4 gap-4 p-4 bg-slate-50/50 rounded-2xl mb-2">
+                  <p className="text-sm font-bold text-slate-600">
+                    {new Date(op.date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  </p>
+                  <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase w-fit ${
+                    op.type === 'Avance' ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'
+                  }`}>
+                    {op.type}
+                  </span>
+                  <p className="text-sm font-bold text-slate-700">{op.reason}</p>
+                  <p className={`text-sm font-black text-right tabular-nums ${
+                    op.type === 'Avance' ? 'text-red-600' : 'text-emerald-600'
+                  }`}>
+                    {op.type === 'Avance' ? '-' : '+'}{op.amount.toLocaleString('fr-FR')} F
+                  </p>
+                </div>
+              ))}
+
+              {/* État vide */}
+              {financeData.monthOps.length === 0 && !financeData.isCurrentMonth && (
+                <div className="py-12 text-center">
+                  <Receipt size={48} className="mx-auto mb-4 text-slate-200" />
+                  <p className="text-sm font-black text-slate-400 uppercase italic">
+                    Aucune opération pour ce mois
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'cockpit' && (
         <div className={`grid grid-cols-1 ${isFocusMode ? '' : 'xl:grid-cols-12'} gap-8 transition-all`}>
-           {/* ... Contenu Cockpit ... */}
+           {/* Sidebar Missions */}
+           {!isFocusMode && (
+             <div className="xl:col-span-4 space-y-6">
+               <div className="bg-white p-6 rounded-[3rem] border border-slate-100 shadow-lg">
+                 <h3 className="text-lg font-black text-[#006344] uppercase italic mb-4 flex items-center gap-2">
+                   <ListTodo size={20} /> File d'attente
+                 </h3>
+                 <div className="space-y-3 max-h-[600px] overflow-y-auto no-scrollbar">
+                   {combinedMissions
+                     .filter(m => m.status !== 'Terminé' && m.status !== 'Livré S++' && m.status !== 'LIVRÉ S++')
+                     .map(mission => (
+                       <button
+                         key={mission.id}
+                         onClick={() => setActiveMissionId(mission.id)}
+                         className={`w-full p-4 rounded-2xl border transition-all text-left ${
+                           activeMissionId === mission.id
+                             ? 'bg-[#006344] text-white border-[#006344] shadow-lg'
+                             : 'bg-slate-50 border-slate-100 hover:border-[#006344]/30 hover:shadow-md'
+                         }`}
+                       >
+                         <div className="flex items-center justify-between mb-2">
+                           <h4 className={`text-sm font-black uppercase italic truncate ${
+                             activeMissionId === mission.id ? 'text-white' : 'text-slate-900'
+                           }`}>
+                             {mission.couple}
+                           </h4>
+                           <span className={`text-[8px] font-black uppercase px-2 py-1 rounded-full ${
+                             activeMissionId === mission.id
+                               ? 'bg-white/20 text-white'
+                               : mission.status === 'En cours'
+                               ? 'bg-emerald-100 text-emerald-600'
+                               : 'bg-slate-200 text-slate-500'
+                           }`}>
+                             {mission.status}
+                           </span>
+                         </div>
+                         <p className={`text-xs font-bold truncate ${
+                           activeMissionId === mission.id ? 'text-white/80' : 'text-slate-500'
+                         }`}>
+                           {mission.title}
+                         </p>
+                         {mission.time_spent > 0 && (
+                           <p className={`text-[10px] font-black mt-2 ${
+                             activeMissionId === mission.id ? 'text-white/60' : 'text-slate-400'
+                           }`}>
+                             {formatTime(mission.time_spent)}
+                           </p>
+                         )}
+                       </button>
+                     ))}
+                   {combinedMissions.filter(m => m.status !== 'Terminé' && m.status !== 'Livré S++' && m.status !== 'LIVRÉ S++').length === 0 && (
+                     <div className="py-12 text-center">
+                       <Check size={48} className="mx-auto mb-4 text-slate-200" />
+                       <p className="text-sm font-black text-slate-400 uppercase italic">
+                         Aucune mission en attente
+                       </p>
+                     </div>
+                   )}
+                 </div>
+               </div>
+             </div>
+           )}
            <div className={`${isFocusMode ? 'col-span-full' : 'xl:col-span-8'} space-y-8`}>
               <section className={`bg-white p-12 rounded-[4rem] shadow-2xl border border-slate-100 relative overflow-hidden transition-all ${isFocusMode ? 'max-w-4xl mx-auto py-24 border-none shadow-none bg-transparent' : ''}`}>
-                 {/* ... Logique cockpit conservée ... */}
                  {!isFocusMode && (
                   <button onClick={() => setIsFocusMode(true)} className="absolute top-8 right-8 p-3 bg-slate-50 text-slate-300 hover:text-[#006344] rounded-2xl transition-all"><Maximize2 size={24}/></button>
                  )}
                  {activeMission ? (
                     <div className="space-y-10 animate-in zoom-in-95 duration-500">
-                       {/* ... UI Cockpit inchangée ... */}
+                       {isFocusMode && (
+                         <button onClick={() => setIsFocusMode(false)} className="fixed top-8 right-8 p-4 bg-white/10 backdrop-blur-md text-slate-400 hover:text-white rounded-full transition-all z-50"><Minimize2 size={32} /></button>
+                       )}
+
                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                           <div className="flex items-center gap-6">
                              <div className={`w-20 h-20 rounded-[2rem] flex items-center justify-center shadow-xl transition-all ${isFocusMode ? 'bg-white/10 text-white' : 'bg-[#006344] text-[#B6C61A]'}`}><Video size={40} /></div>
@@ -1199,43 +1906,146 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
                                 <p className={`text-[10px] font-black uppercase tracking-[0.4em] mt-3 italic flex items-center gap-2 ${isFocusMode ? 'text-white/60' : 'text-[#006344]'}`}><ArrowRight size={14} className={isFocusMode ? 'text-white/40' : 'text-[#B6C61A]'} /> {activeMission.title}</p>
                              </div>
                           </div>
-                          {/* ... Boutons Start/Stop mission ... */}
-                          <div className="text-right">
+                          <div className="flex items-center gap-4">
                              <div className={`px-6 py-3 rounded-2xl border font-black text-[10px] uppercase italic tracking-widest ${activeMission.status === 'Attente Validation' ? 'bg-blue-50 text-blue-600 border-blue-100' : isWorking ? 'bg-emerald-50 text-emerald-600 border-emerald-100 animate-pulse' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
                                 {activeMission.status === 'Attente Validation' ? 'EN REVUE NARCISSE' : isWorking ? 'CHRONO ACTIF' : 'MISSION EN PAUSE'}
                              </div>
+                             {!isFocusMode && (
+                               <button onClick={() => setIsFocusMode(true)} className="p-3 bg-slate-50 text-slate-300 hover:text-[#006344] rounded-2xl transition-all"><Maximize2 size={24}/></button>
+                             )}
                           </div>
                        </div>
-                       {/* ... Compteurs Temps & Jours ... */}
+
                        <div className={`grid grid-cols-1 md:grid-cols-2 gap-12 py-10 border-y ${isFocusMode ? 'border-white/10' : 'border-slate-50'}`}>
                           <div className="space-y-4">
                              <p className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 italic ${isFocusMode ? 'text-white/40' : 'text-slate-400'}`}><Clock size={14}/> Temps total investi</p>
                              <h4 className={`text-7xl font-black italic tracking-tighter tabular-nums ${isWorking ? (isFocusMode ? 'text-white' : 'text-[#006344]') : 'text-slate-300'}`}>{formatTime(elapsedSeconds)}</h4>
                           </div>
                           <div className="space-y-4">
-                             <p className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 italic ${isFocusMode ? 'text-white/40' : 'text-slate-400'}`}><Target size={14}/> Jours Industriels</p>
+                             <p className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 italic ${isFocusMode ? 'text-white/40' : 'text-slate-400'}`}><Target size={14}/> Jours Industriels (Base 9h)</p>
                              <div className="flex items-baseline gap-3">
                                 <h4 className={`text-7xl font-black italic tracking-tighter ${isOverTime(elapsedSeconds) ? 'text-red-500 animate-bounce' : (isFocusMode ? 'text-white' : 'text-slate-900')}`}>{industrialDays(elapsedSeconds)}</h4>
                                 <span className="text-xl font-black text-slate-200 uppercase">/ 3.0 J</span>
                              </div>
                           </div>
                        </div>
-                       
+
                        {activeMission.status !== 'Attente Validation' && (
                           <div className="flex flex-col sm:flex-row gap-4">
-                             <button onClick={() => { setIsWorking(!isWorking); if(isWorking) saveCurrentTime(elapsedSeconds); }} className={`flex-[2] py-8 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-xl flex items-center justify-center gap-4 transition-all hover:scale-105 active:scale-95 ${isWorking ? 'bg-orange-600 text-white' : (isFocusMode ? 'bg-white text-[#006344]' : 'bg-[#006344] text-[#B6C61A]')}`}>
+                             <button 
+                               onClick={() => { 
+                                 if (isWorking) {
+                                   saveCurrentTime(elapsedSeconds);
+                                 }
+                                 setIsWorking(!isWorking);
+                               }} 
+                               className={`flex-[2] py-8 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] shadow-xl flex items-center justify-center gap-4 transition-all hover:scale-105 active:scale-95 ${isWorking ? 'bg-orange-600 text-white' : (isFocusMode ? 'bg-white text-[#006344]' : 'bg-[#006344] text-[#B6C61A]')}`}
+                             >
                                 {isWorking ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" />}
                                 {isWorking ? 'METTRE EN PAUSE' : 'LANCER LA SESSION'}
                              </button>
-                             <button onClick={() => handleUpdateStatus(activeMission, 'Attente Validation')} className="flex-1 py-8 bg-[#B6C61A] text-[#006344] rounded-[2rem] font-black text-[10px] uppercase tracking-[0.2em] shadow-xl flex items-center justify-center gap-4 hover:scale-105 active:scale-95 transition-all"><CloudUpload size={20} /> ENVOYER À NARCISSE</button>
+                             <button 
+                               onClick={() => {
+                                 if (isWorking) {
+                                   saveCurrentTime(elapsedSeconds);
+                                   setIsWorking(false);
+                                 }
+                                 handleUpdateStatus(activeMission, 'Attente Validation');
+                               }} 
+                               className="flex-1 py-8 bg-[#B6C61A] text-[#006344] rounded-[2rem] font-black text-[10px] uppercase tracking-[0.2em] shadow-xl flex items-center justify-center gap-4 hover:scale-105 active:scale-95 transition-all"
+                             >
+                               <CloudUpload size={20} /> ENVOYER À NARCISSE
+                             </button>
                           </div>
                        )}
+
+                       <div className="pt-10 space-y-6">
+                          <div className="flex items-center gap-4 px-4">
+                             <AlertOctagon size={24} className="text-red-500" />
+                             <h4 className={`text-xl font-black uppercase italic ${isFocusMode ? 'text-white' : 'text-slate-900'}`}>SIGNALER UN INCIDENT TECHNIQUE</h4>
+                          </div>
+                          
+                          <div className="bg-slate-50/50 p-8 rounded-[3rem] border border-slate-100 space-y-6">
+                             <div className="flex flex-wrap gap-3">
+                                {[
+                                  { id: 'Cadrage', icon: Film, label: 'Cadrage' },
+                                  { id: 'Montage', icon: Scissors, label: 'Montage' },
+                                  { id: 'Rush', icon: History, label: 'Rush' },
+                                  { id: 'Son', icon: Mic2, label: 'Audio/Son' }
+                                ].map(cat => (
+                                  <button 
+                                    key={cat.id} 
+                                    onClick={() => setReportCategory(cat.id as any)}
+                                    className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase italic flex items-center gap-3 transition-all border relative ${reportCategory === cat.id ? 'bg-[#006344] text-white border-[#006344] shadow-lg' : 'bg-white text-slate-400 border-slate-100 hover:bg-slate-50'}`}
+                                  >
+                                    <cat.icon size={14} /> 
+                                    {cat.label}
+                                    {(reportCounts as any)[cat.id] > 0 && (
+                                       <span className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white text-[8px] font-black flex items-center justify-center rounded-full border-2 border-white shadow-sm animate-bounce">
+                                          {(reportCounts as any)[cat.id]}
+                                       </span>
+                                    )}
+                                  </button>
+                                ))}
+                             </div>
+                             
+                             <div className="relative">
+                                <textarea 
+                                  value={reportText}
+                                  onChange={e => setReportText(e.target.value)}
+                                  placeholder={`Détaillez le problème de ${reportCategory.toUpperCase()}...`}
+                                  className="w-full h-32 px-8 py-6 rounded-[2rem] bg-white border border-slate-100 text-sm font-medium italic outline-none focus:ring-4 focus:ring-[#006344]/5 transition-all resize-none pr-16"
+                                />
+                                <button 
+                                  onClick={handleSendReport}
+                                  disabled={!reportText.trim() || isSyncing}
+                                  className="absolute right-4 bottom-4 w-12 h-12 bg-[#B6C61A] text-white rounded-2xl flex items-center justify-center shadow-xl hover:scale-110 active:scale-95 transition-all disabled:opacity-40"
+                                >
+                                  {isSyncing ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
+                                </button>
+                             </div>
+
+                             <div className="space-y-4 pt-4 border-t border-slate-200/50">
+                                <div className="flex items-center justify-between px-4">
+                                   <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest italic">
+                                      Historique {reportCategory.toUpperCase()} ({filteredReports.length})
+                                   </p>
+                                </div>
+                                <div className="grid grid-cols-1 gap-3">
+                                   {filteredReports.length > 0 ? filteredReports.map((report) => (
+                                      <div key={report.id} className="flex items-center justify-between p-5 bg-white rounded-2xl border border-slate-100 shadow-sm group hover:shadow-md transition-all animate-in fade-in slide-in-from-left-2">
+                                         <div className="flex items-center gap-4">
+                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${report.status === 'Resolved' ? 'bg-emerald-50 text-emerald-500' : 'bg-red-50 text-red-500'}`}>
+                                               {report.status === 'Resolved' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+                                            </div>
+                                            <div>
+                                               <div className="flex items-center gap-3">
+                                                  <span className="text-[9px] font-black uppercase text-[#006344]">{report.category}</span>
+                                                  <span className="text-[8px] font-bold text-slate-300">{new Date(report.date).toLocaleDateString()}</span>
+                                               </div>
+                                               <p className="text-xs font-bold text-slate-600 mt-1 italic line-clamp-1">{report.message}</p>
+                                            </div>
+                                         </div>
+                                         <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase italic ${report.status === 'Resolved' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600 animate-pulse'}`}>
+                                            {report.status === 'Resolved' ? 'FIXÉ' : 'EN ATTENTE'}
+                                         </span>
+                                      </div>
+                                   )) : (
+                                      <div className="py-10 text-center opacity-30 italic">
+                                         <SearchCheck size={32} className="mx-auto mb-2 text-slate-300" />
+                                         <p className="text-[10px] font-black uppercase tracking-widest">Aucun incident de {reportCategory} signalé</p>
+                                      </div>
+                                   )}
+                                </div>
+                             </div>
+                          </div>
+                       </div>
                     </div>
                  ) : (
                     <div className="py-20 text-center space-y-6">
                        <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-200"><Check size={48} /></div>
                        <h3 className="text-2xl font-black text-slate-400 uppercase italic tracking-tighter">Flux de production à l'arrêt</h3>
-                       <p className="text-sm font-bold text-slate-300 uppercase tracking-widest max-w-xs mx-auto italic">Aucune mission assignée.</p>
+                       <p className="text-sm font-bold text-slate-300 uppercase tracking-widest max-w-xs mx-auto italic">Sélectionnez une unité dans votre file d'attente pour activer le cockpit.</p>
                     </div>
                  )}
               </section>
@@ -1250,6 +2060,6 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
       <style dangerouslySetInnerHTML={{ __html: `@keyframes scan { 0% { top: 0; } 50% { top: 100%; } 100% { top: 0; } } .animate-scan { animation: scan 3s infinite linear; height: 4px; background: #B6C61A; box-shadow: 0 0 20px #B6C61A; position: absolute; width: 100%; left: 0; z-index: 10; opacity: 0.8; } .no-scrollbar::-webkit-scrollbar { display: none; } .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }`}} />
     </div>
   );
-};
+}; 
 
 export default EmployeeSpace;

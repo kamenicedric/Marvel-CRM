@@ -36,7 +36,18 @@ export const getSpaceInsight = async (space: Space): Promise<SpaceInsight> => {
     return cache[space.id].insight;
   }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // Vérifier si l'API key est disponible
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'undefined' || apiKey === '') {
+    // Retourner un insight par défaut sans faire d'appel API
+    return {
+      title: "Analyse Stratégique",
+      content: "L'intelligence artificielle nécessite une clé API Gemini pour fonctionner.",
+      category: "Système"
+    };
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   
   const systemInstruction = `
     Tu es l'intelligence centrale de Marvel CRM. 
@@ -71,13 +82,30 @@ export const getSpaceInsight = async (space: Space): Promise<SpaceInsight> => {
 
     return insight;
   } catch (error: any) {
-    console.error("Gemini Insight Error:", error);
     const errMsg = error?.message || String(error);
+    const isApiKeyError = 
+      errMsg.includes('API key not valid') ||
+      errMsg.includes('API_KEY_INVALID') ||
+      errMsg.includes('INVALID_ARGUMENT') ||
+      error?.status === 400;
+    
+    // Ne logger l'erreur que si ce n'est pas une erreur d'API key (pour éviter le spam)
+    if (!isApiKeyError) {
+      console.error("Gemini Insight Error:", error);
+    }
     
     if (errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED')) {
       return {
         title: "Mode Économie de Flux",
         content: "L'analyse prédictive est en pause pour optimiser la bande passante.",
+        category: "Système"
+      };
+    }
+
+    if (isApiKeyError) {
+      return {
+        title: "Configuration requise",
+        content: "Une clé API Gemini valide est nécessaire pour activer l'intelligence artificielle.",
         category: "Système"
       };
     }

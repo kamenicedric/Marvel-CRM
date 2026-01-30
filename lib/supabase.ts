@@ -255,28 +255,44 @@ export const quotesService = {
 
 export const biometricService = {
   async registerCredential(employeeId: string, credentialId: string, publicKey: string, deviceName?: string) {
-    const { data, error } = await supabase
-      .from('biometric_credentials')
-      .insert({
-        employee_id: employeeId,
-        credential_id: credentialId,
-        public_key: publicKey,
-        device_name: deviceName || 'Unknown Device',
-        last_used_at: new Date().toISOString()
-      })
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
+    try {
+      const { data, error } = await supabase
+        .from('biometric_credentials')
+        .insert({
+          employee_id: employeeId,
+          credential_id: credentialId,
+          public_key: publicKey,
+          device_name: deviceName || 'Unknown Device',
+          last_used_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    } catch (err: any) {
+      // Gérer les erreurs AbortError
+      if (err?.name === 'AbortError' || err?.message?.includes('aborted')) {
+        throw new Error('Requête annulée');
+      }
+      throw err;
+    }
   },
   async getCredentialsByEmployee(employeeId: string) {
-    const { data, error } = await supabase
-      .from('biometric_credentials')
-      .select('*')
-      .eq('employee_id', employeeId)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return data || [];
+    try {
+      const { data, error } = await supabase
+        .from('biometric_credentials')
+        .select('*')
+        .eq('employee_id', employeeId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    } catch (err: any) {
+      // Gérer les erreurs AbortError
+      if (err?.name === 'AbortError' || err?.message?.includes('aborted')) {
+        throw new Error('Requête annulée');
+      }
+      throw err;
+    }
   },
   async updateLastUsed(credentialId: string) {
     const { error } = await supabase

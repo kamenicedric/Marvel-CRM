@@ -110,8 +110,18 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
       try {
         const data = await getSpaceInsight(space);
         setInsight(data);
-      } catch (err) {
-        console.error("Insight error:", err);
+      } catch (err: any) {
+        // Ne logger que les erreurs non liées à l'API key pour éviter le spam
+        const errMsg = err?.message || String(err);
+        if (!errMsg.includes('API key') && !errMsg.includes('API_KEY_INVALID')) {
+          console.error("Insight error:", err);
+        }
+        // Définir un insight par défaut en cas d'erreur
+        setInsight({
+          title: "Analyse Stratégique",
+          content: "L'intelligence artificielle nécessite une configuration pour fonctionner.",
+          category: "Système"
+        });
       } finally {
         setLoadingInsight(false);
       }
