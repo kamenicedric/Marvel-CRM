@@ -47,6 +47,8 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
   // États pour les données dynamiques
   const [allSpaces, setAllSpaces] = useState<Space[]>(SPACES);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [employeeNotifUnread, setEmployeeNotifUnread] = useState(0);
+  const [employeeNotifTrigger, setEmployeeNotifTrigger] = useState(0);
   
   // DÉTECTION DU MODE ADMIN (NARCISSE)
   const [isAdminSession] = useState(() => space.id === 'nar6');
@@ -223,7 +225,16 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
       default:
         // On vérifie si c'est un espace membre connu
         const currentMember = teamMembers.find(m => m.id === space.id) || member;
-        return <EmployeeSpace member={currentMember}/>;
+        return (
+          <EmployeeSpace
+            member={currentMember}
+            onLogout={onLogout}
+            onNotificationTrigger={employeeNotifTrigger}
+            onNotificationSummaryChange={({ unreadCount }) =>
+              setEmployeeNotifUnread(unreadCount)
+            }
+          />
+        );
     }
   };
 
@@ -366,7 +377,15 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
               <div className="hidden sm:block"><SearchTrigger onClick={() => setShowGlobalSearch(true)} /></div>
               <button onClick={() => setShowGlobalSearch(true)} className="sm:hidden p-2 text-slate-400"><Search size={20}/></button>
               <div className="flex items-center gap-2 md:gap-4 pl-2 md:pl-4 border-l border-slate-100">
-                 <button className="p-2 text-slate-300 relative hover:text-[#B6C61A] transition-colors"><Bell size={20} /><span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-[#BD3B1B] rounded-full border border-white"></span></button>
+                 <button
+                   onClick={() => setEmployeeNotifTrigger((t) => t + 1)}
+                   className="p-2 text-slate-300 relative hover:text-[#B6C61A] transition-colors"
+                 >
+                   <Bell size={20} />
+                   {employeeNotifUnread > 0 && (
+                     <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-[#BD3B1B] rounded-full border border-white"></span>
+                   )}
+                 </button>
                  <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl md:rounded-2xl bg-[#006344] border border-slate-200 flex items-center justify-center text-[10px] font-black text-[#B6C61A] italic shadow-lg">
                    {member ? member.full_name.substring(0,2).toUpperCase() : (isAdminSession ? 'NA' : 'UR')}
                  </div>

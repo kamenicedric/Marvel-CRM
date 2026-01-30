@@ -24,11 +24,14 @@ import {
   Scissors, Film, Mic2, AlertOctagon, Send, ChevronRight as ChevronRightIcon,
   SearchCheck, Briefcase, ArrowUpRight, Award,
   Image as ImageIcon, Fingerprint, ScanFace, Lock, Camera,
-  Bell
+  Bell, LogOut
 } from 'lucide-react';
 
 interface EmployeeSpaceProps {
   member: TeamMember | null;
+  onLogout?: () => void;
+  onNotificationTrigger?: number;
+  onNotificationSummaryChange?: (summary: { unreadCount: number }) => void;
 }
 
 interface TeaserReport {
@@ -68,7 +71,12 @@ interface AppNotification {
 const industrialDays = (sec: number) => (sec / (9 * 3600)).toFixed(1);
 const isOverTime = (sec: number) => sec > (27 * 3600);
 
-const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
+const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
+  member,
+  onLogout,
+  onNotificationTrigger,
+  onNotificationSummaryChange
+}) => {
   const [activeTab, setActiveTab] = useState<'cockpit' | 'historique' | 'finance' | 'bonus' | 'pointage'>('cockpit');
   const [tasks, setTasks] = useState<ProductionTask[]>([]);
   const [projects, setProjects] = useState<WeddingProject[]>([]);
@@ -127,6 +135,19 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [previousMissionsCount, setPreviousMissionsCount] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Détection mobile (pour le bouton de déconnexion et l'UX)
+  useEffect(() => {
+    const checkMobile = () => {
+      if (typeof window !== 'undefined') {
+        setIsMobile(window.innerWidth < 768);
+      }
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
   
   // Calculer les compteurs et rapports filtrés
   const reportCounts = useMemo(() => {
@@ -343,10 +364,17 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
     }
   }, [combinedMissions, previousMissionsCount]);
 
-  const unreadCount = useMemo(() => 
-    notifications.filter(n => !n.read).length, 
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.read).length,
     [notifications]
   );
+
+  // Remonter le résumé des notifications au parent (MasterDashboard)
+  useEffect(() => {
+    if (onNotificationSummaryChange) {
+      onNotificationSummaryChange({ unreadCount });
+    }
+  }, [unreadCount, onNotificationSummaryChange]);
 
   const handleNotificationClick = (notification: AppNotification) => {
     // Marquer comme lu
@@ -366,6 +394,13 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
   const markAllAsRead = () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
+
+  // Ouvrir / fermer le panneau de notifications lorsqu'on clique sur la cloche du header (MasterDashboard)
+  useEffect(() => {
+    if (onNotificationTrigger === undefined) return;
+    // On toggle simplement l'état d'ouverture
+    setShowNotifications(prev => !prev);
+  }, [onNotificationTrigger]);
 
   // ... (Calculs statsBonus et financeData inchangés) ...
   const statsBonus = useMemo(() => {
@@ -593,15 +628,15 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
       }
       
       // Détecter le type d'appareil actuel pour utiliser le bon credential
-      const isMobile = navigator.userAgent.includes('Mobile') || 
+      const deviceIsMobile = navigator.userAgent.includes('Mobile') || 
                        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      const deviceType = isMobile ? 'Mobile Device' : 'Desktop';
+      const deviceType = deviceIsMobile ? 'Mobile Device' : 'Desktop';
       
       // Essayer de trouver le credential correspondant à l'appareil actuel
       let credentialToUse = existingCredentials.find(c => 
         c.device_name?.includes(deviceType) || 
-        (isMobile && c.device_name?.includes('Mobile')) ||
-        (!isMobile && c.device_name?.includes('Desktop'))
+        (deviceIsMobile && c.device_name?.includes('Mobile')) ||
+        (!deviceIsMobile && c.device_name?.includes('Desktop'))
       );
       
       // Si aucun credential spécifique trouvé, utiliser le plus récent
@@ -1129,7 +1164,87 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
 
   return (
     <div className={`space-y-8 animate-in fade-in duration-700 pb-24 max-w-[1600px] mx-auto transition-all ${isFocusMode ? 'p-4' : ''}`}>
-      
+      {/* Bouton de déconnexion mobile */}
+      {isMobile && onLogout && (
+        <div className="fixed bottom-20 right-4 z-40 md:hidden">
+          <button
+            onClick={onLogout}
+            className="p-4 bg-red-500 text-white rounded-full shadow-xl hover:bg-red-600 transition-all hover:scale-110 active:scale-95 flex items-center gap-2"
+            title="Déconnexion"
+          >
+            <LogOut size={20} />
+            <span className="text-xs font-black uppercase">Déconnexion</span>
+          </button>
+        </div>
+      )}
+
+      {/* Panneau de notifications (ouvert/fermé par la cloche du header principal) */}
+      {showNotifications && (
+        <div className="fixed top-20 right-4 z-50">
+          <div className="w-96 bg-white rounded-[2rem] shadow-2xl border border-slate-100 overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <h3 className="text-sm font-black text-[#006344] uppercase italic">Notifications</h3>
+              {unreadCount > 0 && (
+                <button
+                  onClick={markAllAsRead}
+                  className="text-xs font-black text-[#006344] hover:underline"
+                >
+                  Tout marquer comme lu
+                </button>
+              )}
+            </div>
+            <div className="max-h-96 overflow-y-auto">
+              {notifications.length === 0 ? (
+                <div className="p-8 text-center">
+                  <Bell size={48} className="mx-auto mb-3 text-slate-200" />
+                  <p className="text-sm font-black text-slate-400 uppercase italic">
+                    Aucune notification
+                  </p>
+                </div>
+              ) : (
+                notifications.map((notif) => (
+                  <button
+                    key={notif.id}
+                    onClick={() => handleNotificationClick(notif)}
+                    className={`w-full p-4 border-b border-slate-50 hover:bg-slate-50 transition-all text-left ${
+                      !notif.read ? 'bg-blue-50/50' : ''
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className={`w-2 h-2 rounded-full mt-2 ${
+                          !notif.read ? 'bg-[#006344]' : 'bg-transparent'
+                        }`}
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <p
+                            className={`text-xs font-black uppercase ${
+                              !notif.read ? 'text-[#006344]' : 'text-slate-600'
+                            }`}
+                          >
+                            {notif.title}
+                          </p>
+                          <span className="text-[9px] font-bold text-slate-400">
+                            {notif.date.toLocaleTimeString('fr-FR', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </span>
+                        </div>
+                        <p className="text-sm font-medium text-slate-700 italic">
+                          {notif.message}
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {!isFocusMode && (
         <>
           {/* Performance Cards */}
@@ -1174,79 +1289,6 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({ member }) => {
               <Flame size={32} className="text-yellow-400 mb-4" />
               <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-2">OBJECTIF</p>
               <p className="text-2xl font-black text-[#B6C61A] uppercase italic">STATUS ALPHA</p>
-            </div>
-          </div>
-
-          {/* Notifications Bell */}
-          <div className="fixed top-6 right-6 z-50">
-            <div className="relative">
-              <button
-                onClick={() => setShowNotifications(!showNotifications)}
-                className="p-4 bg-white rounded-full shadow-lg border border-slate-100 hover:shadow-xl transition-all hover:scale-105 active:scale-95"
-              >
-                <Bell size={24} className="text-slate-600" />
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-black border-2 border-white">
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
-                )}
-              </button>
-              
-              {/* Dropdown Notifications */}
-              {showNotifications && (
-                <div className="absolute top-full right-0 mt-2 w-96 bg-white rounded-[2rem] shadow-2xl border border-slate-100 overflow-hidden">
-                  <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-                    <h3 className="text-sm font-black text-[#006344] uppercase italic">Notifications</h3>
-                    {unreadCount > 0 && (
-                      <button
-                        onClick={markAllAsRead}
-                        className="text-xs font-black text-[#006344] hover:underline"
-                      >
-                        Tout marquer comme lu
-                      </button>
-                    )}
-                  </div>
-                  <div className="max-h-96 overflow-y-auto">
-                    {notifications.length === 0 ? (
-                      <div className="p-8 text-center">
-                        <Bell size={48} className="mx-auto mb-3 text-slate-200" />
-                        <p className="text-sm font-black text-slate-400 uppercase italic">Aucune notification</p>
-                      </div>
-                    ) : (
-                      notifications.map(notif => (
-                        <button
-                          key={notif.id}
-                          onClick={() => handleNotificationClick(notif)}
-                          className={`w-full p-4 border-b border-slate-50 hover:bg-slate-50 transition-all text-left ${
-                            !notif.read ? 'bg-blue-50/50' : ''
-                          }`}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className={`w-2 h-2 rounded-full mt-2 ${
-                              !notif.read ? 'bg-[#006344]' : 'bg-transparent'
-                            }`} />
-                            <div className="flex-1">
-                              <div className="flex items-center justify-between mb-1">
-                                <p className={`text-xs font-black uppercase ${
-                                  !notif.read ? 'text-[#006344]' : 'text-slate-600'
-                                }`}>
-                                  {notif.title}
-                                </p>
-                                <span className="text-[9px] font-bold text-slate-400">
-                                  {notif.date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                                </span>
-                              </div>
-                              <p className="text-sm font-medium text-slate-700 italic">
-                                {notif.message}
-                              </p>
-                            </div>
-                          </div>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 
