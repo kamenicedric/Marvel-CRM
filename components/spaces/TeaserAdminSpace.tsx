@@ -15,11 +15,22 @@ import {
   ShieldAlert, Video, Target, Trash2, Coins, AlertTriangle, Eye, EyeOff,
   Trophy, Medal, Star, Flame, Award, Info,
   ChevronLeftCircle,
-  ChevronRightCircle
+  ChevronRightCircle,
+  Bell
 } from 'lucide-react';
+
+interface TeaserNotif {
+  id: string;
+  title: string;
+  message: string;
+  date: Date;
+  read: boolean;
+}
 
 interface TeaserAdminSpaceProps {
   member: TeamMember | null;
+  onNotificationTrigger?: number;
+  onNotificationSummaryChange?: (summary: { unreadCount: number }) => void;
 }
 
 const TEASER_VISUAL_CONFIG: Record<string, { color: string, textColor: string, light: string }> = {
@@ -84,7 +95,7 @@ const getTeaserTargetDate = (project: WeddingProject): Date => {
   return targetDate;
 };
 
-const TeaserAdminSpace: React.FC<TeaserAdminSpaceProps> = ({ member }) => {
+const TeaserAdminSpace: React.FC<TeaserAdminSpaceProps> = ({ member, onNotificationTrigger, onNotificationSummaryChange }) => {
   const [activeTab, setActiveTab] = useState<'pilotage' | 'attribution' | 'equipe' | 'remuneration'>('attribution');
   const [projects, setProjects] = useState<WeddingProject[]>([]);
   const [team, setTeam] = useState<TeamMember[]>([]);
@@ -92,6 +103,8 @@ const TeaserAdminSpace: React.FC<TeaserAdminSpaceProps> = ({ member }) => {
   const [syncing, setSyncing] = useState(false);
   const [showOverdue, setShowOverdue] = useState(false);
   const [quickViewProject, setQuickViewProject] = useState<WeddingProject | null>(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<TeaserNotif[]>([]);
   
   const [viewDate, setViewDate] = useState(() => {
     const d = new Date();
@@ -135,6 +148,42 @@ const TeaserAdminSpace: React.FC<TeaserAdminSpaceProps> = ({ member }) => {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [fetchData]);
+
+  // Notifications : projets Teaser en retard (date cible dépassée, non terminés)
+  useEffect(() => {
+    const now = new Date();
+    const list: TeaserNotif[] = [];
+    projects.forEach(p => {
+      const formula = p.formula || "";
+      const isTeaserProject = formula.toLowerCase().includes('teaser') || !!(p as any).teaser_data;
+      if (!isTeaserProject) return;
+      const status = (p as any).teaser_data?.status;
+      if (status === 'Terminé') return;
+      const targetDate = getTeaserTargetDate(p);
+      if (targetDate < now) {
+        list.push({
+          id: `teaser-overdue-${p.id}`,
+          title: 'Teaser en retard',
+          message: `${(p as any).couple || p.couple} — prévu le ${targetDate.toLocaleDateString('fr-FR')}`,
+          date: targetDate,
+          read: false
+        });
+      }
+    });
+    setNotifications(list);
+  }, [projects]);
+
+  const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications]);
+  useEffect(() => {
+    if (onNotificationSummaryChange) onNotificationSummaryChange({ unreadCount });
+  }, [unreadCount, onNotificationSummaryChange]);
+
+  useEffect(() => {
+    if (onNotificationTrigger === undefined) return;
+    setShowNotifications(prev => !prev);
+  }, [onNotificationTrigger]);
+
+  const markAllAsRead = () => setNotifications(prev => prev.map(n => ({ ...n, read: true })));
 
   const handlePrevMonth = () => {
     setViewDate(prev => {
@@ -350,7 +399,37 @@ const TeaserAdminSpace: React.FC<TeaserAdminSpaceProps> = ({ member }) => {
 
   return (
     <div className="w-full space-y-8 animate-in fade-in duration-700 pb-24 text-slate-900">
-      
+      {showNotifications && (
+        <div className="fixed top-20 right-4 z-50 w-96 bg-white rounded-[2rem] shadow-2xl border border-slate-100 overflow-hidden">
+          <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+            <h3 className="text-sm font-black text-[#006344] uppercase italic">Notifications</h3>
+            {unreadCount > 0 && (
+              <button onClick={markAllAsRead} className="text-xs font-black text-[#006344] hover:underline">Tout marquer comme lu</button>
+            )}
+          </div>
+          <div className="max-h-96 overflow-y-auto">
+            {notifications.length === 0 ? (
+              <div className="p-8 text-center">
+                <Bell size={48} className="mx-auto mb-3 text-slate-200" />
+                <p className="text-sm font-black text-slate-400 uppercase italic">Aucune notification</p>
+              </div>
+            ) : (
+              notifications.map(notif => (
+                <div key={notif.id} className={`w-full p-4 border-b border-slate-50 ${!notif.read ? 'bg-blue-50/50' : ''}`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`w-2 h-2 rounded-full mt-2 shrink-0 ${!notif.read ? 'bg-[#006344]' : 'bg-transparent'}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-xs font-black uppercase ${!notif.read ? 'text-[#006344]' : 'text-slate-600'}`}>{notif.title}</p>
+                      <p className="text-sm font-medium text-slate-700 italic truncate">{notif.message}</p>
+                      <span className="text-[9px] font-bold text-slate-400">{notif.date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
       {/* KPI Section */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
          {[

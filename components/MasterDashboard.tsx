@@ -47,8 +47,13 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
   // États pour les données dynamiques
   const [allSpaces, setAllSpaces] = useState<Space[]>(SPACES);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [employeeNotifUnread, setEmployeeNotifUnread] = useState(0);
-  const [employeeNotifTrigger, setEmployeeNotifTrigger] = useState(0);
+  const [headerNotifUnread, setHeaderNotifUnread] = useState(0);
+  const [headerNotifTrigger, setHeaderNotifTrigger] = useState(0);
+
+  // Réinitialiser le compteur de notifications à chaque changement d’espace
+  useEffect(() => {
+    setHeaderNotifUnread(0);
+  }, [space.id]);
   
   // DÉTECTION DU MODE ADMIN (NARCISSE)
   const [isAdminSession] = useState(() => space.id === 'nar6');
@@ -213,26 +218,43 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
     // 2. ROUTAGE UNIFIÉ DES ESPACES
     // Les gestionnaires gardent leurs espaces spécifiques
     switch (space.id) {
-      case 'manager': return <ManajaSpace />;
+      case 'manager':
+        return (
+          <ManajaSpace
+            onNotificationTrigger={headerNotifTrigger}
+            onNotificationSummaryChange={({ unreadCount }) => setHeaderNotifUnread(unreadCount)}
+          />
+        );
       case 'sandra': return <SandraSpace member={member}/>;
       case 'cyril': return <CyrilSpace member={member}/>;
       case 'salaires': return <SalairesSpace />;
-      case 'teaser': return <TeaserAdminSpace member={member} />;
-      case 'dvd': return <DvdAdminSpace member={member} />;
+      case 'teaser':
+        return (
+          <TeaserAdminSpace
+            member={member}
+            onNotificationTrigger={headerNotifTrigger}
+            onNotificationSummaryChange={({ unreadCount }) => setHeaderNotifUnread(unreadCount)}
+          />
+        );
+      case 'dvd':
+        return (
+          <DvdAdminSpace
+            member={member}
+            onNotificationTrigger={headerNotifTrigger}
+            onNotificationSummaryChange={({ unreadCount }) => setHeaderNotifUnread(unreadCount)}
+          />
+        );
       case 'com': return <ComMarketingSpace member={member} />;
       
-      // CAS PAR DÉFAUT POUR TOUS LES EMPLOYÉS DYNAMIQUES
+      // CAS PAR DÉFAUT (EMPLOYÉS DYNAMIQUES + SUPER ADMIN nar6)
       default:
-        // On vérifie si c'est un espace membre connu
         const currentMember = teamMembers.find(m => m.id === space.id) || member;
         return (
           <EmployeeSpace
             member={currentMember}
             onLogout={onLogout}
-            onNotificationTrigger={employeeNotifTrigger}
-            onNotificationSummaryChange={({ unreadCount }) =>
-              setEmployeeNotifUnread(unreadCount)
-            }
+            onNotificationTrigger={headerNotifTrigger}
+            onNotificationSummaryChange={({ unreadCount }) => setHeaderNotifUnread(unreadCount)}
           />
         );
     }
@@ -378,11 +400,11 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
               <button onClick={() => setShowGlobalSearch(true)} className="sm:hidden p-2 text-slate-400"><Search size={20}/></button>
               <div className="flex items-center gap-2 md:gap-4 pl-2 md:pl-4 border-l border-slate-100">
                  <button
-                   onClick={() => setEmployeeNotifTrigger((t) => t + 1)}
+                   onClick={() => setHeaderNotifTrigger((t) => t + 1)}
                    className="p-2 text-slate-300 relative hover:text-[#B6C61A] transition-colors"
                  >
                    <Bell size={20} />
-                   {employeeNotifUnread > 0 && (
+                   {headerNotifUnread > 0 && (
                      <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-[#BD3B1B] rounded-full border border-white"></span>
                    )}
                  </button>

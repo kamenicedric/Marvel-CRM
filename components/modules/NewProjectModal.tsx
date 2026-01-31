@@ -1,5 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Heart, Users, Package, FileText, Clock, Save, Calendar, MapPin, Map, Info, UserCheck, Loader2, MessageSquare, CalendarDays, Layers, BookOpen, Star, Sparkles, Camera } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
@@ -96,6 +96,16 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose, onSa
     }
   }, [formData.packageDetail]);
 
+  // Nettoyer la caméra lors du démontage (toujours déclaré pour respecter l’ordre des Hooks)
+  useEffect(() => {
+    return () => {
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
   const toggleOption = (option: string) => {
     setFormData(prev => ({
       ...prev,
@@ -120,8 +130,6 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose, onSa
       setIsSubmitting(false);
     }
   };
-
-  if (!isOpen) return null;
 
   const triggerPicker = (e: React.MouseEvent<HTMLDivElement>) => {
     const input = e.currentTarget.querySelector('input');
@@ -198,17 +206,9 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose, onSa
     }, 'image/jpeg', 0.9);
   };
 
-  // Nettoyer la caméra lors de la fermeture
-  useEffect(() => {
-    return () => {
-      if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, []);
+  if (!isOpen) return null;
 
-  return (
+  const modalEl = (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-[#006344]/90 backdrop-blur-md" onClick={onClose}></div>
       <div className="relative bg-[#FAFAFA] w-full max-w-6xl max-h-[95vh] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 border border-white/20">
@@ -469,6 +469,10 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose, onSa
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' && document.body
+    ? createPortal(modalEl, document.body)
+    : modalEl;
 };
 
 export default NewProjectModal;

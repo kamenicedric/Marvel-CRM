@@ -1600,6 +1600,142 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
         </div>
       )}
 
+      {/* VUE BONUS TRACKER */}
+      {activeTab === 'bonus' && (
+        <div className="xl:col-span-12 space-y-8 animate-in fade-in duration-500">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Carte Prime du mois */}
+            <div className="bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-100">
+              <div className="flex items-center gap-4 mb-8 pb-6 border-b border-slate-100">
+                <div className="w-14 h-14 rounded-[1.5rem] bg-[#006344] text-[#B6C61A] flex items-center justify-center shadow-lg">
+                  <Trophy size={28} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black uppercase italic tracking-tighter text-[#006344]">
+                    Prime du mois
+                  </h2>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
+                    Objectif : 8 missions terminées
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col items-center justify-center py-6">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Prime actuelle</p>
+                <p className="text-5xl font-black italic text-[#006344] tabular-nums">
+                  {statsBonus.prime.toLocaleString('fr-FR')} F
+                </p>
+                <p className="text-sm font-bold text-slate-500 mt-2">
+                  {statsBonus.count < 8 ? `Base 10 000 F − pénalité` : statsBonus.count === 8 ? `Prime pleine` : `+ ${((statsBonus.count - 8) * 5000).toLocaleString('fr-FR')} F bonus`}
+                </p>
+              </div>
+              <div className="mt-6 p-5 rounded-2xl bg-slate-50 border border-slate-100">
+                <p className={`text-sm font-black uppercase italic text-center ${
+                  statsBonus.status === 'safe' ? 'text-[#006344]' : statsBonus.status === 'warning' ? 'text-amber-600' : 'text-red-600'
+                }`}>
+                  {statsBonus.message}
+                </p>
+              </div>
+            </div>
+
+            {/* Progression objectif */}
+            <div className="bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-100">
+              <div className="flex items-center gap-4 mb-8 pb-6 border-b border-slate-100">
+                <div className="w-14 h-14 rounded-[1.5rem] bg-[#B6C61A]/20 text-[#006344] flex items-center justify-center">
+                  <Target size={28} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black uppercase italic tracking-tighter text-[#006344]">
+                    Progression
+                  </h2>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
+                    {statsBonus.count} / 8 missions livrées
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-6">
+                <div>
+                  <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+                    <span>Missions terminées</span>
+                    <span>{Math.min(statsBonus.count, 8)} / 8</span>
+                  </div>
+                  <div className="h-4 rounded-full bg-slate-100 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-700 ${
+                        statsBonus.count >= 8 ? 'bg-[#B6C61A]' : statsBonus.status === 'danger' ? 'bg-red-500' : 'bg-[#006344]'
+                      }`}
+                      style={{ width: `${Math.min((statsBonus.count / 8) * 100, 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-between text-[9px] font-black uppercase text-slate-400">
+                  <span>Courbe idéale ce mois : {statsBonus.idealProgress.toFixed(1)} missions à ce jour</span>
+                </div>
+                <div className="grid grid-cols-2 gap-4 pt-4">
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center">
+                    <p className="text-2xl font-black italic text-[#006344]">{statsBonus.count}</p>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Livrées</p>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center">
+                    <p className="text-2xl font-black italic text-slate-600">{Math.max(0, 8 - statsBonus.count)}</p>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Restantes</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Règles & missions comptabilisées */}
+          <div className="bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-100">
+            <div className="flex items-center gap-4 mb-6 pb-6 border-b border-slate-100">
+              <Coins size={24} className="text-[#B6C61A]" />
+              <h3 className="text-lg font-black uppercase italic tracking-tighter text-[#006344]">
+                Règles bonus
+              </h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
+              <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-100">
+                <p className="font-black uppercase text-emerald-800">Prime de base</p>
+                <p className="text-slate-600 mt-1">10 000 F si 8 missions livrées dans le mois.</p>
+              </div>
+              <div className="p-5 rounded-2xl bg-amber-50 border border-amber-100">
+                <p className="font-black uppercase text-amber-800">Pénalité</p>
+                <p className="text-slate-600 mt-1">Si tu es en retard sur la courbe idéale du mois, la prime diminue.</p>
+              </div>
+              <div className="p-5 rounded-2xl bg-[#006344]/10 border border-[#006344]/20">
+                <p className="font-black uppercase text-[#006344]">Bonus au-delà de 8</p>
+                <p className="text-slate-600 mt-1">+ 5 000 F par mission livrée au-delà de 8.</p>
+              </div>
+            </div>
+            <div className="mt-8">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Missions comptabilisées ce mois</h4>
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {combinedMissions
+                  .filter(m => m.status === 'Terminé' || m.status === 'Livré S++' || m.status === 'LIVRÉ S++')
+                  .sort((a, b) => new Date(b.deadline || 0).getTime() - new Date(a.deadline || 0).getTime())
+                  .slice(0, 20)
+                  .map((m, i) => (
+                    <div key={m.id} className="flex items-center gap-4 p-4 rounded-xl bg-slate-50 border border-slate-100">
+                      <CheckCircle2 size={18} className="text-[#B6C61A] shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-black uppercase italic text-slate-800 truncate">{m.couple}</p>
+                        <p className="text-[10px] font-bold text-slate-500">{m.title}</p>
+                      </div>
+                      <span className="text-[10px] font-black text-slate-400 shrink-0">
+                        {m.deadline ? new Date(m.deadline).toLocaleDateString('fr-FR') : '—'}
+                      </span>
+                    </div>
+                  ))}
+                {combinedMissions.filter(m => m.status === 'Terminé' || m.status === 'Livré S++' || m.status === 'LIVRÉ S++').length === 0 && (
+                  <div className="py-8 text-center text-slate-400 text-sm font-black uppercase italic">
+                    Aucune mission terminée encore ce mois
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* VUE JOURNAL DES MISSIONS */}
       {activeTab === 'historique' && (
         <div className="space-y-8 animate-in fade-in duration-500">

@@ -194,7 +194,7 @@ const ProjectsView: React.FC<ProjectsViewProps> = ({
               <option>Cameroun</option>
               <option>France</option>
             </select>
-            <button onClick={onNewProject} className="bg-[#006344] text-[#B6C61A] px-8 py-3.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2">
+            <button type="button" onClick={onNewProject} className="bg-[#006344] text-[#B6C61A] px-8 py-3.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2">
               <Plus size={16} strokeWidth={4} /> NOUVEAU PROJET
             </button>
           </div>

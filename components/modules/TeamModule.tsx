@@ -299,10 +299,19 @@ const TeamModule: React.FC = () => {
       setSelectedMember(null);
     } catch (err: any) {
       console.error("Save error detail:", err);
-      const errorMsg = err?.message || err?.details || JSON.stringify(err);
+      const errorMsg = typeof err?.message === 'string' ? err.message : (err?.details || JSON.stringify(err));
       
       if (errorMsg.includes("column \"specialty\" does not exist")) {
-        alert("ERREUR CRITIQUE : La colonne 'specialty' est manquante.");
+        alert("ERREUR CRITIQUE : La colonne 'specialty' est manquante dans la table team_members. Ajoutez-la dans Supabase.");
+      } else if (errorMsg.includes("Failed to fetch") || errorMsg.includes("fetch")) {
+        alert(
+          "ERREUR DE CONNEXION SUPABASE\n\n" +
+          "Impossible de joindre le serveur. Vérifiez :\n" +
+          "• Votre connexion Internet\n" +
+          "• Que le projet Supabase n'est pas en pause (Dashboard Supabase)\n" +
+          "• L'URL et la clé dans .env (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)\n\n" +
+          "Détail : " + errorMsg
+        );
       } else {
         alert("ERREUR SUPABASE : " + errorMsg);
       }

@@ -18,11 +18,22 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   GripHorizontal,
-  Ban
+  Ban,
+  Bell
 } from 'lucide-react';
+
+interface DvdNotif {
+  id: string;
+  title: string;
+  message: string;
+  date: Date;
+  read: boolean;
+}
 
 interface DvdAdminSpaceProps {
   member: TeamMember | null;
+  onNotificationTrigger?: number;
+  onNotificationSummaryChange?: (summary: { unreadCount: number }) => void;
 }
 
 const MAX_WEEKLY_CAPACITY = 3; // Limite de projets par semaine par monteur
@@ -41,7 +52,7 @@ const DVD_VISUAL_CONFIG: Record<string, { color: string, textColor: string, ligh
   'OSCAR': { color: 'bg-teal-600', textColor: 'text-white', light: 'bg-teal-50' },
 };
 
-const DvdAdminSpace: React.FC<DvdAdminSpaceProps> = ({ member }) => {
+const DvdAdminSpace: React.FC<DvdAdminSpaceProps> = ({ member, onNotificationTrigger, onNotificationSummaryChange }) => {
   const [activeTab, setActiveTab] = useState<'pilotage' | 'matrice' | 'performance'>('matrice');
   const [projects, setProjects] = useState<WeddingProject[]>([]);
   const [team, setTeam] = useState<TeamMember[]>([]);
@@ -52,6 +63,8 @@ const DvdAdminSpace: React.FC<DvdAdminSpaceProps> = ({ member }) => {
   const [viewDate, setViewDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [isPipelineCollapsed, setIsPipelineCollapsed] = useState(false);
   const [quickViewProject, setQuickViewProject] = useState<WeddingProject | null>(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<DvdNotif[]>([]);
 
   const safeFormatDate = (dateStr: any) => {
     if (!dateStr) return 'TBD';
@@ -99,6 +112,37 @@ const DvdAdminSpace: React.FC<DvdAdminSpaceProps> = ({ member }) => {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    const now = new Date();
+    const list: DvdNotif[] = [];
+    projects.forEach(p => {
+      if (p.status === 'Archivé' || p.status === 'Livré') return;
+      const planned = p.poleDVD?.planned_date ? new Date(p.poleDVD.planned_date) : null;
+      if (planned && planned < now) {
+        list.push({
+          id: `dvd-overdue-${p.id}`,
+          title: 'DVD / Teaser en retard',
+          message: `${p.couple} — prévu le ${planned.toLocaleDateString('fr-FR')}`,
+          date: planned,
+          read: false
+        });
+      }
+    });
+    setNotifications(list);
+  }, [projects]);
+
+  const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications]);
+  useEffect(() => {
+    if (onNotificationSummaryChange) onNotificationSummaryChange({ unreadCount });
+  }, [unreadCount, onNotificationSummaryChange]);
+
+  useEffect(() => {
+    if (onNotificationTrigger === undefined) return;
+    setShowNotifications(prev => !prev);
+  }, [onNotificationTrigger]);
+
+  const markAllAsRead = () => setNotifications(prev => prev.map(n => ({ ...n, read: true })));
 
   const handlePrevMonth = () => {
     setViewDate(prev => {
@@ -271,6 +315,37 @@ const DvdAdminSpace: React.FC<DvdAdminSpaceProps> = ({ member }) => {
 
   return (
     <div className="w-full space-y-8 animate-in fade-in duration-700 pb-24 text-slate-900">
+      {showNotifications && (
+        <div className="fixed top-20 right-4 z-50 w-96 bg-white rounded-[2rem] shadow-2xl border border-slate-100 overflow-hidden">
+          <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+            <h3 className="text-sm font-black text-[#006344] uppercase italic">Notifications</h3>
+            {unreadCount > 0 && (
+              <button onClick={markAllAsRead} className="text-xs font-black text-[#006344] hover:underline">Tout marquer comme lu</button>
+            )}
+          </div>
+          <div className="max-h-96 overflow-y-auto">
+            {notifications.length === 0 ? (
+              <div className="p-8 text-center">
+                <Bell size={48} className="mx-auto mb-3 text-slate-200" />
+                <p className="text-sm font-black text-slate-400 uppercase italic">Aucune notification</p>
+              </div>
+            ) : (
+              notifications.map(notif => (
+                <div key={notif.id} className={`w-full p-4 border-b border-slate-50 ${!notif.read ? 'bg-blue-50/50' : ''}`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`w-2 h-2 rounded-full mt-2 shrink-0 ${!notif.read ? 'bg-[#006344]' : 'bg-transparent'}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-xs font-black uppercase ${!notif.read ? 'text-[#006344]' : 'text-slate-600'}`}>{notif.title}</p>
+                      <p className="text-sm font-medium text-slate-700 italic truncate">{notif.message}</p>
+                      <span className="text-[9px] font-bold text-slate-400">{notif.date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
          {[
            { label: 'Efficacité DVD', val: '94%', icon: Activity, color: 'bg-blue-600 text-white' },
