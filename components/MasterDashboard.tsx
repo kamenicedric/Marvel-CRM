@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, Suspense, useMemo } from 'react';
+import React, { useState, useEffect, useRef, Suspense, useMemo } from 'react';
 import { Space, SpaceInsight, TeamMember } from '../types.ts';
 import { SPACES } from '../constants.tsx';
 import { getSpaceInsight } from '../services/geminiService.ts';
@@ -49,10 +49,28 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [headerNotifUnread, setHeaderNotifUnread] = useState(0);
   const [headerNotifTrigger, setHeaderNotifTrigger] = useState(0);
+  const [showSuperAdminNotifPanel, setShowSuperAdminNotifPanel] = useState(false);
 
   // Réinitialiser le compteur de notifications à chaque changement d’espace
   useEffect(() => {
     setHeaderNotifUnread(0);
+  }, [space.id]);
+
+  const prevNotifTriggerRef = useRef(headerNotifTrigger);
+  // Cloche Super Admin (nar6) : ouvrir/fermer le panneau uniquement au clic sur la cloche
+  useEffect(() => {
+    if (space.id !== 'nar6') {
+      setShowSuperAdminNotifPanel(false);
+      return;
+    }
+    if (prevNotifTriggerRef.current === headerNotifTrigger) return;
+    prevNotifTriggerRef.current = headerNotifTrigger;
+    if (headerNotifTrigger === 0) return;
+    setShowSuperAdminNotifPanel(prev => !prev);
+  }, [headerNotifTrigger, space.id]);
+
+  useEffect(() => {
+    if (space.id !== 'nar6') setShowSuperAdminNotifPanel(false);
   }, [space.id]);
   
   // DÉTECTION DU MODE ADMIN (NARCISSE)
@@ -420,6 +438,22 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
               {renderSpaceContent()}
            </Suspense>
         </main>
+
+        {/* Panneau notifications Super Admin (nar6) — ouvert par la cloche du header */}
+        {space.id === 'nar6' && showSuperAdminNotifPanel && (
+          <div className="fixed top-20 right-4 z-50 w-96 bg-white rounded-[2rem] shadow-2xl border border-slate-100 overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <h3 className="text-sm font-black text-[#006344] uppercase italic">Notifications Super Admin</h3>
+            </div>
+            <div className="max-h-96 overflow-y-auto p-8">
+              <div className="text-center">
+                <Bell size={48} className="mx-auto mb-3 text-slate-200" />
+                <p className="text-sm font-black text-slate-400 uppercase italic">Aucune notification</p>
+                <p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest mt-2">Hub Commandement Narcisse</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* MOBILE NAV (Uniquement pour Admin) */}
