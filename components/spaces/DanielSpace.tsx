@@ -396,8 +396,14 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
   };
 
   // Ouvrir / fermer le panneau de notifications lorsqu'on clique sur la cloche du header (MasterDashboard)
+  // On ignore le tout premier rendu pour éviter une ouverture automatique au chargement
+  const notifFirstRenderRef = useRef(true);
   useEffect(() => {
     if (onNotificationTrigger === undefined) return;
+    if (notifFirstRenderRef.current) {
+      notifFirstRenderRef.current = false;
+      return;
+    }
     // On toggle simplement l'état d'ouverture
     setShowNotifications(prev => !prev);
   }, [onNotificationTrigger]);

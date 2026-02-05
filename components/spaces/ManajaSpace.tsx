@@ -168,8 +168,14 @@ const ManajaSpace: React.FC<ManajaSpaceProps> = ({ onNotificationTrigger, onNoti
     if (onNotificationSummaryChange) onNotificationSummaryChange({ unreadCount });
   }, [unreadCount, onNotificationSummaryChange]);
 
+  // Empêcher l'ouverture automatique du panneau au premier rendu
+  const notifFirstRenderRef = useRef(true);
   useEffect(() => {
     if (onNotificationTrigger === undefined) return;
+    if (notifFirstRenderRef.current) {
+      notifFirstRenderRef.current = false;
+      return;
+    }
     setShowNotifications(prev => !prev);
   }, [onNotificationTrigger]);
 
