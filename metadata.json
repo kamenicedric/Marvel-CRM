@@ -1,0 +1,7 @@
+{
+  "name": "Marvel CRM (Copie N6) v9",
+  "description": "Un CRM complet pour la gestion de mariages et de production audiovisuelle, intégrant la gestion des leads, des projets de mariage complexes et le suivi de production par pôle.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
