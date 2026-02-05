@@ -65,6 +65,12 @@ const SandraSpace: React.FC<SandraSpaceProps> = () => {
   const [monthlyRevenueGoal, setMonthlyRevenueGoal] = useState(1500000);
   const [monthlyProfitGoal, setMonthlyProfitGoal] = useState(800000);
 
+  // Config locale (peut évoluer plus tard vers Supabase)
+  const [customTypes, setCustomTypes] = useState<string[]>(INITIAL_TYPES);
+  const [customFormulas, setCustomFormulas] = useState<string[]>(INITIAL_FORMULAS);
+  const [newType, setNewType] = useState('');
+  const [newFormula, setNewFormula] = useState('');
+
   // Formulaire & Brouillon
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [formStep, setFormStep] = useState(1);
@@ -286,6 +292,79 @@ const SandraSpace: React.FC<SandraSpaceProps> = () => {
         </div>
       )}
 
+      {activeTab === 'stats' && (
+        <div className="space-y-10 animate-in slide-in-from-bottom-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Répartition par type */}
+            <div className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-sm font-black uppercase tracking-widest text-[#006344] flex items-center gap-2">
+                  <PieChartIcon size={18} /> Répartition CA par type
+                </h3>
+              </div>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={customTypes.map(type => {
+                        const total = sessions
+                          .filter(s => s.type === type)
+                          .reduce((acc, s) => acc + Number(s.amount || 0), 0);
+                        return { name: type, value: total || 0 };
+                      }).filter(d => d.value > 0)}
+                      dataKey="value"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={4}
+                    >
+                      {customTypes.map((_, idx) => (
+                        <Cell key={idx} fill={['#006344','#B6C61A','#0EA5E9','#F97316','#EC4899','#22C55E'][idx % 6]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Courbe CA vs Dépenses */}
+            <div className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-sm font-black uppercase tracking-widest text-[#006344] flex items-center gap-2">
+                  <BarChart3 size={18} /> CA vs Dépenses
+                </h3>
+              </div>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart
+                    data={['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'].map((label, idx) => {
+                      const monthIndex = idx + 1;
+                      const monthSessions = sessions.filter(s => (s.date || '').startsWith(`2025-${String(monthIndex).padStart(2,'0')}`));
+                      const monthExpenses = expenses.filter(e => (e.date || '').startsWith(`2025-${String(monthIndex).padStart(2,'0')}`));
+                      return {
+                        name: label,
+                        revenue: monthSessions.reduce((acc, s) => acc + Number(s.amount || 0), 0),
+                        expense: monthExpenses.reduce((acc, e) => acc + Number(e.amount || 0), 0),
+                      };
+                    })}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748B' }} />
+                    <YAxis tick={{ fontSize: 11, fill: '#64748B' }} />
+                    <Tooltip />
+                    <Legend />
+                    <Area type="monotone" dataKey="revenue" stroke="#006344" fill="#00634422" name="CA" />
+                    <Area type="monotone" dataKey="expense" stroke="#BD3B1B" fill="#BD3B1B22" name="Dépenses" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'finances' && (
         <div className="space-y-10 animate-in slide-in-from-bottom-4">
            <div className="bg-[#006344] p-12 rounded-[4rem] shadow-2xl text-white relative overflow-hidden flex flex-col md:flex-row items-center justify-between border-b-[12px] border-[#B6C61A]">
@@ -314,6 +393,112 @@ const SandraSpace: React.FC<SandraSpaceProps> = () => {
                  ))}
               </div>
            </div>
+        </div>
+      )}
+
+      {activeTab === 'config' && (
+        <div className="space-y-8 animate-in fade-in duration-500">
+          <div className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-sm grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Types de prestations */}
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-widest text-[#006344] mb-4 flex items-center gap-2">
+                <Layers size={16} /> Types de prestations
+              </h3>
+              <div className="flex gap-2 mb-4">
+                <input
+                  value={newType}
+                  onChange={(e) => setNewType(e.target.value)}
+                  placeholder="Nouveau type (ex: Couple Premium)"
+                  className="flex-1 px-4 py-2 rounded-2xl bg-slate-50 border border-slate-200 text-sm"
+                />
+                <button
+                  onClick={() => {
+                    const value = newType.trim();
+                    if (!value || customTypes.includes(value)) return;
+                    setCustomTypes(prev => [...prev, value]);
+                    setNewType('');
+                  }}
+                  className="px-4 py-2 bg-[#006344] text-white rounded-2xl text-xs font-black uppercase tracking-widest"
+                >
+                  Ajouter
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {customTypes.map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setCustomTypes(prev => prev.filter(x => x !== t))}
+                    className="px-3 py-1 rounded-2xl bg-slate-100 text-[11px] font-black uppercase tracking-widest text-slate-600 hover:bg-red-50 hover:text-red-500"
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Formules commerciales */}
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-widest text-[#006344] mb-4 flex items-center gap-2">
+                <Package size={16} /> Formules commerciales
+              </h3>
+              <div className="flex gap-2 mb-4">
+                <input
+                  value={newFormula}
+                  onChange={(e) => setNewFormula(e.target.value)}
+                  placeholder="Nouvelle formule (ex: Studio Luxe)"
+                  className="flex-1 px-4 py-2 rounded-2xl bg-slate-50 border border-slate-200 text-sm"
+                />
+                <button
+                  onClick={() => {
+                    const value = newFormula.trim();
+                    if (!value || customFormulas.includes(value)) return;
+                    setCustomFormulas(prev => [...prev, value]);
+                    setNewFormula('');
+                  }}
+                  className="px-4 py-2 bg-[#006344] text-white rounded-2xl text-xs font-black uppercase tracking-widest"
+                >
+                  Ajouter
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {customFormulas.map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setCustomFormulas(prev => prev.filter(x => x !== f))}
+                    className="px-3 py-1 rounded-2xl bg-slate-100 text-[11px] font-black uppercase tracking-widest text-slate-600 hover:bg-red-50 hover:text-red-500"
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-sm">
+            <h3 className="text-sm font-black uppercase tracking-widest text-[#006344] mb-4 flex items-center gap-2">
+              <Settings2 size={16} /> Objectifs financiers
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Objectif CA mensuel</p>
+                <input
+                  type="number"
+                  value={monthlyRevenueGoal}
+                  onChange={(e) => setMonthlyRevenueGoal(Number(e.target.value) || 0)}
+                  className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-sm font-black text-[#006344]"
+                />
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Objectif bénéfice</p>
+                <input
+                  type="number"
+                  value={monthlyProfitGoal}
+                  onChange={(e) => setMonthlyProfitGoal(Number(e.target.value) || 0)}
+                  className="w-full px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-sm font-black text-[#006344]"
+                />
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

@@ -467,6 +467,57 @@ const TeaserAdminSpace: React.FC<TeaserAdminSpaceProps> = ({ member, onNotificat
           })}
       </div>
 
+      {activeTab === 'pilotage' && (
+        <div className="space-y-6 animate-in fade-in duration-500">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em] mb-2">Projets Teaser actifs</p>
+              <p className="text-3xl font-black italic text-[#006344]">{statsGouvernance.total}</p>
+            </div>
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em] mb-2">Teasers terminés</p>
+              <p className="text-3xl font-black italic text-emerald-600">{statsGouvernance.terminés}</p>
+            </div>
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.3em] mb-2">Taux de succès</p>
+              <p className="text-3xl font-black italic text-[#B6C61A]">{statsGouvernance.txSuccès}%</p>
+            </div>
+          </div>
+
+          <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm">
+            <h3 className="text-sm font-black uppercase tracking-[0.3em] text-[#006344] mb-4 flex items-center gap-2">
+              <Bell size={16} /> Dossiers critiques (notifications)
+            </h3>
+            {notifications.length === 0 ? (
+              <div className="text-slate-400 text-sm font-black uppercase italic text-center py-8">
+                Aucun retard détecté sur les teasers.
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {notifications.map((n) => (
+                  <div
+                    key={n.id}
+                    className={`p-4 rounded-2xl border text-sm flex items-center justify-between ${
+                      n.read ? 'bg-slate-50 border-slate-100' : 'bg-amber-50/60 border-amber-200'
+                    }`}
+                  >
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        {n.title}
+                      </span>
+                      <span className="font-medium text-slate-700">{n.message}</span>
+                    </div>
+                    <span className="text-[9px] font-bold text-slate-400">
+                      {n.date.toLocaleDateString('fr-FR')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {activeTab === 'attribution' && (
         <div className="space-y-6 animate-in slide-in-from-right-4">
            {/* Navigation Controls */}
@@ -652,6 +703,88 @@ const TeaserAdminSpace: React.FC<TeaserAdminSpaceProps> = ({ member, onNotificat
                  </tbody>
               </table>
            </div>
+        </div>
+      )}
+
+      {activeTab === 'equipe' && (
+        <div className="space-y-6 animate-in fade-in duration-500">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {rankingData.map((r, idx) => (
+              <div
+                key={r.id}
+                className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col gap-3"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                      Rang #{idx + 1}
+                    </p>
+                    <p className="text-sm font-black italic text-slate-900">
+                      {r.name}
+                    </p>
+                  </div>
+                  <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center">
+                    {idx === 0 ? <Trophy className="text-yellow-500" size={20} /> : idx === 1 ? <Medal className="text-slate-400" size={20} /> : <Star className="text-amber-400" size={20} />}
+                  </div>
+                </div>
+                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  <span>{r.completed} unités OK</span>
+                  <span>{r.assigned} assignées</span>
+                </div>
+                <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                  <div
+                    className="h-full bg-[#006344]"
+                    style={{ width: `${Math.min(100, r.yield)}%` }}
+                  />
+                </div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#006344]">
+                  Rendement {r.yield}%
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'remuneration' && (
+        <div className="space-y-6 animate-in fade-in duration-500">
+          <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm">
+            <h3 className="text-sm font-black uppercase tracking-[0.3em] text-[#006344] mb-4 flex items-center gap-2">
+              <Coins size={16} /> Simulation des primes
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[11px]">
+                <thead>
+                  <tr className="text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                    <th className="py-3 pr-4">Monteur</th>
+                    <th className="py-3 pr-4 text-right">Unités OK</th>
+                    <th className="py-3 pr-4 text-right">Rendement</th>
+                    <th className="py-3 pr-4 text-right">Points</th>
+                    <th className="py-3 pl-4 text-right">Prime estimée</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rankingData.map((r) => {
+                    const basePrime = 10000;
+                    const bonus = Math.max(0, r.completed - 8) * 5000;
+                    const yieldBonus = r.yield >= 100 ? 5000 : r.yield >= 80 ? 2500 : 0;
+                    const totalPrime = basePrime + bonus + yieldBonus;
+                    return (
+                      <tr key={r.id} className="border-b border-slate-50">
+                        <td className="py-3 pr-4 font-bold text-slate-700">{r.name}</td>
+                        <td className="py-3 pr-4 text-right font-mono">{r.completed}</td>
+                        <td className="py-3 pr-4 text-right font-mono">{r.yield}%</td>
+                        <td className="py-3 pr-4 text-right font-mono">{r.points}</td>
+                        <td className="py-3 pl-4 text-right font-black text-emerald-600">
+                          {totalPrime.toLocaleString()} F
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 

@@ -73,6 +73,27 @@ const WorkflowConfigModule: React.FC = () => {
     setWorkflows({ ...workflows, [selectedFormula]: [...currentSteps, newStep] });
   };
 
+  const handleAddFormula = () => {
+    if (typeof window === 'undefined') return;
+    const name = window.prompt("Nom de la nouvelle formule (ex: Photo + Film Luxe) ?");
+    if (!name) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (workflows[trimmed]) {
+      alert("Cette formule existe déjà dans le catalogue.");
+      return;
+    }
+    const baseStep: DetailedTaskTemplate = {
+      title: "Nouvelle étape de production",
+      day: 10,
+      assignedTo: "marvel",
+      pole: "PHOTO",
+    };
+    const updated = { ...workflows, [trimmed]: [baseStep] };
+    setWorkflows(updated);
+    setSelectedFormula(trimmed);
+  };
+
   const handleDeleteStep = (idx: number) => {
     const updated = currentSteps.filter((_, i) => i !== idx);
     setWorkflows({ ...workflows, [selectedFormula]: updated });
@@ -90,8 +111,11 @@ const WorkflowConfigModule: React.FC = () => {
                 <Layout size={16} className="text-[#006344]" />
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Catalogue Formules</h3>
              </div>
-             <button className="w-full py-4 bg-[#006344] text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-2 hover:scale-[1.02] transition-all">
-                <Plus size={16} /> Nouveau Template
+             <button
+               onClick={handleAddFormula}
+               className="w-full py-4 bg-[#006344] text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-2 hover:scale-[1.02] transition-all"
+             >
+               <Plus size={16} /> Nouveau Template
              </button>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-2 no-scrollbar">

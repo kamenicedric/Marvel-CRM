@@ -111,11 +111,19 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
 
   const handleUnlock = async (enteredPin: string) => {
     // Priorité au PIN du membre connecté s'il existe
+    let isValid = false;
     if (member && member.status === 'Actif') {
-      return enteredPin === member.pin;
+      isValid = enteredPin === member.pin;
+    } else {
+      // Sinon code de l'espace (pour login générique)
+      isValid = enteredPin === space.code;
     }
-    // Sinon code de l'espace (pour login générique)
-    return enteredPin === space.code;
+
+    // Si le code est valide, on déverrouille la session immédiatement
+    if (isValid) {
+      setIsLocked(false);
+    }
+    return isValid;
   };
 
 
@@ -543,6 +551,17 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
           <button className="flex flex-col items-center gap-1 text-slate-400"><Search size={20} onClick={() => setShowGlobalSearch(true)} /><span className="text-[8px] font-black uppercase tracking-widest">Chercher</span></button>
           <button className="flex flex-col items-center gap-1 text-slate-400" onClick={onLogout}><LogOut size={20} /><span className="text-[8px] font-black uppercase tracking-widest">Sortir</span></button>
         </nav>
+      )}
+
+      {/* Bouton déconnexion mobile pour tous les autres espaces (hors Super Admin) */}
+      {!isAdminSession && (
+        <button
+          onClick={onLogout}
+          className="md:hidden fixed bottom-4 right-4 z-[200] rounded-full bg-white border border-slate-200 shadow-[0_10px_25px_rgba(15,23,42,0.25)] px-4 py-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 active:scale-95 transition-transform"
+        >
+          <LogOut size={16} className="text-[#BD3B1B]" />
+          <span>Déconnexion</span>
+        </button>
       )}
 
       {/* MOBILE DRAWER (Uniquement pour Admin) */}
