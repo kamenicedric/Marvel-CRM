@@ -74,10 +74,11 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
     prevNotifUnreadRef.current = headerNotifUnread;
   }, [headerNotifUnread]);
 
-  // SÉCURITÉ : AUTO-LOCK (1 min inactivité pour Manager/Admin)
+  // SÉCURITÉ : AUTO-LOCK (1 min inactivité pour espaces sensibles)
   useEffect(() => {
-    // Uniquement pour les espaces sensibles
-    if (!['nar6', 'manager'].includes(space.id)) return;
+    // Uniquement pour les espaces sensibles (Admin + pôles critiques)
+    const sensitiveSpaces = ['nar6', 'manager', 'sandra', 'salaires', 'com', 'cyril', 'dvd', 'teaser'];
+    if (!sensitiveSpaces.includes(space.id)) return;
 
     const INACTIVITY_LIMIT = 60000; // 1 minute
     let timeoutId: NodeJS.Timeout;

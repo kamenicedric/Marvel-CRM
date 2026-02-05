@@ -15,9 +15,10 @@ const App: React.FC = () => {
     const authStatus = localStorage.getItem('marvel_auth');
     const savedMember = localStorage.getItem('marvel_current_member');
 
-    // SÉCURITÉ : Déconnexion forcée au rafraîchissement pour Manager/Admin
-    // Si l'espace sauvegardé est critique, on ne restaure pas la session et on nettoie le storage
-    if (savedSpaceId && ['nar6', 'manager'].includes(savedSpaceId)) {
+    // SÉCURITÉ : Déconnexion forcée au rafraîchissement pour les espaces critiques
+    // Si l'espace sauvegardé est sensible, on ne restaure pas la session et on nettoie le storage
+    const sensitiveSpaces = ['nar6', 'manager', 'sandra', 'salaires', 'com', 'cyril', 'dvd', 'teaser'];
+    if (savedSpaceId && sensitiveSpaces.includes(savedSpaceId)) {
       localStorage.removeItem('marvel_current_space');
       localStorage.removeItem('marvel_auth');
       localStorage.removeItem('marvel_current_member');
