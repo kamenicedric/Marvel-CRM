@@ -45,10 +45,12 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // SÉCURITÉ : États pour le verrouillage et les notifications
+  // SÉCURITÉ : États pour le verrouillage
   const [isLocked, setIsLocked] = useState(false);
-  const [isBellAnimating, setIsBellAnimating] = useState(false);
 
+  // Notifications : état global
+  const [hasNewNotifications, setHasNewNotifications] = useState(false);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
 
   // États pour les données dynamiques
   const [allSpaces, setAllSpaces] = useState<Space[]>(SPACES);
@@ -63,12 +65,11 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
     setHeaderNotifUnread(0);
   }, [space.id]);
 
-  // ANIMATION CLOCHE ET GESTION INTELLIGENTE DES NOTIFS
+  // GESTION DU FLAG "NOUVELLES NOTIFS"
   useEffect(() => {
+    // Dès qu'on détecte au moins une notif non lue, on active le flag
     if (headerNotifUnread > 0 && headerNotifUnread > prevNotifUnreadRef.current) {
-      setIsBellAnimating(true);
-      const timer = setTimeout(() => setIsBellAnimating(false), 2000); // Animation de 2s
-      return () => clearTimeout(timer);
+      setHasNewNotifications(true);
     }
     prevNotifUnreadRef.current = headerNotifUnread;
   }, [headerNotifUnread]);
@@ -118,18 +119,14 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
   };
 
 
-  const prevNotifTriggerRef = useRef(headerNotifTrigger);
-  // Cloche Super Admin (nar6) : ouvrir/fermer le panneau uniquement au clic sur la cloche
+  // Synchroniser le panneau de notifications Super Admin avec l'état global isNotificationOpen
   useEffect(() => {
-    if (space.id !== 'nar6') {
+    if (space.id === 'nar6') {
+      setShowSuperAdminNotifPanel(isNotificationOpen);
+    } else {
       setShowSuperAdminNotifPanel(false);
-      return;
     }
-    if (prevNotifTriggerRef.current === headerNotifTrigger) return;
-    prevNotifTriggerRef.current = headerNotifTrigger;
-    if (headerNotifTrigger === 0) return;
-    setShowSuperAdminNotifPanel(prev => !prev);
-  }, [headerNotifTrigger, space.id]);
+  }, [space.id, isNotificationOpen]);
 
   useEffect(() => {
     if (space.id !== 'nar6') setShowSuperAdminNotifPanel(false);
@@ -137,6 +134,20 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
 
   // DÉTECTION DU MODE ADMIN (NARCISSE)
   const [isAdminSession] = useState(() => space.id === 'nar6');
+
+  // Gestion du clic sur la cloche (ouverture manuelle uniquement)
+  const handleBellClick = () => {
+    setIsNotificationOpen((prev) => {
+      const next = !prev;
+      // Dès que l'utilisateur ouvre le panneau, on coupe l'animation
+      if (next) {
+        setHasNewNotifications(false);
+      }
+      return next;
+    });
+    // Propager l'événement aux espaces enfants pour qu'ils ouvrent/ferment leur panneau
+    setHeaderNotifTrigger((t) => t + 1);
+  };
 
   // États des dropdowns
   const [isTeaserDropdownOpen, setIsTeaserDropdownOpen] = useState(false);
@@ -477,10 +488,19 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
             <button onClick={() => setShowGlobalSearch(true)} className="sm:hidden p-2 text-slate-400"><Search size={20} /></button>
             <div className="flex items-center gap-2 md:gap-4 pl-2 md:pl-4 border-l border-slate-100">
               <button
-                onClick={() => setHeaderNotifTrigger((t) => t + 1)}
-                className={`p-2 text-slate-300 relative hover:text-[#B6C61A] transition-all ${isBellAnimating ? 'animate-bounce text-[#B6C61A]' : ''}`}
+                onClick={handleBellClick}
+                className={`p-2 text-slate-300 relative hover:text-[#B6C61A] transition-all ${
+                  hasNewNotifications && !isNotificationOpen ? 'animate-bounce text-[#B6C61A]' : ''
+                }`}
               >
-                <Bell size={20} className={isBellAnimating ? 'drop-shadow-[0_0_8px_rgba(182,198,26,0.6)]' : ''} />
+                <Bell
+                  size={20}
+                  className={
+                    hasNewNotifications && !isNotificationOpen
+                      ? 'drop-shadow-[0_0_12px_rgba(182,198,26,0.7)] animate-pulse'
+                      : ''
+                  }
+                />
                 {headerNotifUnread > 0 && (
                   <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-[#BD3B1B] rounded-full border border-white"></span>
                 )}
