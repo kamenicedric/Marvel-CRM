@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { WeddingProject, Lead, ProductionTask } from '../../types.ts';
 import { projectsService, leadsService, tasksService, supabase } from '../../lib/supabase.ts';
 import CRMModule from '../modules/CRMModule.tsx';

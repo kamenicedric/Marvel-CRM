@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase, projectsService, teamService } from '../../lib/supabase.ts';
 import { WeddingProject, TeamMember } from '../../types';
 import { FORMULA_WORKFLOWS } from '../../types/taskPlanning.ts';
