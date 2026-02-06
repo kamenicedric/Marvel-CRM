@@ -95,3 +95,49 @@ export async function attendanceCheckIn(params: {
   }
 }
 
+export async function attendanceCheckOut(params: {
+  employeeId: string;
+  lat: number;
+  lng: number;
+  mode: AttendanceMode;
+  selfieDataUrl?: string;
+}) {
+  try {
+    const res = await fetch('/api/attendance/check-out', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const text = await res.text();
+
+    if (!text) {
+      throw new Error(`Réponse vide du serveur (status: ${res.status})`);
+    }
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      if (text.includes('NOT_FOUND') || text.includes('404') || res.status === 404) {
+        throw new Error(
+          `Route API non trouvée pour le check-out. Vérifiez que le serveur de développement est démarré. Status: ${res.status}`,
+        );
+      }
+      throw new Error(`Réponse invalide (non-JSON): ${text.substring(0, 200)}`);
+    }
+
+    if (!res.ok) {
+      const errorMsg = data?.error || data?.message || 'Erreur check-out';
+      const details = data?.details ? ` (${data.details})` : '';
+      throw new Error(`${errorMsg}${details}`);
+    }
+
+    return data as { entry: AttendanceEntry };
+  } catch (error: any) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(`Erreur réseau: ${error?.message || String(error)}`);
+  }
+}
+

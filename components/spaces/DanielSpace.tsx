@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { tasksService, projectsService, biometricService, pointageService, supabase } from '../../lib/supabase.ts';
 import { ProductionTask, TeamMember, WeddingProject } from '../../types.ts';
 import ProjectQuickView from '../shared/ProjectQuickView.tsx';
-import { attendanceCheckIn, attendanceMe, attendanceHistory, AttendanceEntry } from '../../services/attendanceApi';
+import { attendanceCheckIn, attendanceCheckOut, attendanceMe, attendanceHistory, AttendanceEntry } from '../../services/attendanceApi';
 import {
   ATTENDANCE_ZONE_RADIUS_METERS,
 } from '../../lib/attendanceConfig';
@@ -130,6 +130,20 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
   const selfieVideoRef = useRef<HTMLVideoElement>(null);
   const selfieCanvasRef = useRef<HTMLCanvasElement>(null);
   const selfieStreamRef = useRef<MediaStream | null>(null);
+
+  // Détection entrée/sortie du jour pour adapter le bouton (entrée d'abord, puis sortie)
+  const todayKey = useMemo(() => {
+    const d = new Date();
+    return d.toISOString().slice(0, 10);
+  }, []);
+
+  const { hasTodayIn, hasTodayOut } = useMemo(() => {
+    const todayEntries = monthlyAttendance.filter(e => e.timestamp.slice(0, 10) === todayKey);
+    return {
+      hasTodayIn: todayEntries.some(e => e.type === 'IN'),
+      hasTodayOut: todayEntries.some(e => e.type === 'OUT'),
+    };
+  }, [monthlyAttendance, todayKey]);
 
   // États Signalement
   const [reportCategory, setReportCategory] = useState<TeaserReport['category']>('Montage');
@@ -843,7 +857,7 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
     }
   };
 
-  const submitAttendance = async () => {
+  const submitAttendanceIn = async () => {
     if (!member?.id) {
       setAttendanceError('Employé non identifié');
       return;
@@ -908,6 +922,73 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
       await loadMonthlyAttendance();
     } catch (e: any) {
       setAttendanceError(e?.message || 'Erreur check-in');
+    } finally {
+      setAttendanceLoading(false);
+    }
+  };
+
+  const submitAttendanceOut = async () => {
+    if (!member?.id) {
+      setAttendanceError('Employé non identifié');
+      return;
+    }
+    setAttendanceLoading(true);
+    setAttendanceError(null);
+    try {
+      const coords = gpsCoords || (await requestGeolocation());
+
+      if (attendanceMode === 'SELFIE') {
+        const dataUrl = selfiePreview || captureSelfiePreview();
+        if (!dataUrl) throw new Error('Selfie requis');
+        const r = await attendanceCheckOut({
+          employeeId: member.id,
+          lat: coords.lat,
+          lng: coords.lng,
+          mode: 'SELFIE',
+          selfieDataUrl: dataUrl,
+        });
+        setAttendanceEntry(r.entry);
+        setDistanceToZoneMeters(r.entry.distance_meters ?? null);
+        setSelfiePreview(null);
+        stopSelfieStream();
+        setShowAttendanceModal(false);
+      } else {
+        // Mode BIO : réutiliser le même flux d'enregistrement/vérification que pour l'entrée
+        try {
+          await runBiometricStep(false); // Essayer d'abord sans enregistrement
+        } catch (e: any) {
+          if (e?.message === 'ENREGISTREMENT_REQUIRED') {
+            const confirmRegister = window.confirm(
+              'Aucune empreinte digitale enregistrée.\n\n' +
+              'Voulez-vous enregistrer votre empreinte maintenant ?\n\n' +
+              'Cliquez sur OK pour enregistrer votre empreinte digitale.'
+            );
+
+            if (confirmRegister) {
+              await runBiometricStep(true); // Autoriser l'enregistrement
+              alert('✅ Empreinte digitale enregistrée avec succès ! Vous pouvez maintenant pointer.');
+            } else {
+              throw new Error('Enregistrement de l\'empreinte annulé. Utilisez le mode Selfie pour pointer.');
+            }
+          } else {
+            throw e; // Propager les autres erreurs
+          }
+        }
+
+        const r = await attendanceCheckOut({
+          employeeId: member.id,
+          lat: coords.lat,
+          lng: coords.lng,
+          mode: 'BIO',
+        });
+        setAttendanceEntry(r.entry);
+        setDistanceToZoneMeters(r.entry.distance_meters ?? null);
+        setShowAttendanceModal(false);
+      }
+      // Après chaque pointage, rafraîchir l'historique du mois
+      await loadMonthlyAttendance();
+    } catch (e: any) {
+      setAttendanceError(e?.message || 'Erreur check-out');
     } finally {
       setAttendanceLoading(false);
     }
@@ -1581,11 +1662,18 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
                           Prendre photo
                         </button>
                         <button
-                          onClick={submitAttendance}
+                          onClick={hasTodayIn && !hasTodayOut ? submitAttendanceOut : submitAttendanceIn}
                           disabled={attendanceLoading || !selfiePreview}
                           className="flex-1 py-4 rounded-2xl bg-[#B6C61A] text-[#006344] disabled:opacity-50 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                         >
-                          {attendanceLoading ? <Loader2 className="animate-spin" size={16} /> : <><Check size={16} /> Valider présence</>}
+                          {attendanceLoading ? (
+                            <Loader2 className="animate-spin" size={16} />
+                          ) : (
+                            <>
+                              <Check size={16} />{' '}
+                              {hasTodayIn && !hasTodayOut ? 'Valider sortie' : 'Valider entrée'}
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>
@@ -1615,7 +1703,7 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
                             onClick={() => {
                               setBiometricTimeoutReached(false);
                               setAttendanceError(null);
-                              submitAttendance();
+                              (hasTodayIn && !hasTodayOut ? submitAttendanceOut : submitAttendanceIn)();
                             }}
                             className="w-full py-4 rounded-2xl bg-[#B6C61A] text-[#006344] text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                           >
@@ -1624,13 +1712,26 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
                         </div>
                       ) : (
                         <button
-                          onClick={submitAttendance}
+                          onClick={hasTodayIn && !hasTodayOut ? submitAttendanceOut : submitAttendanceIn}
                           disabled={attendanceLoading || isWaitingFingerprint}
                           className="w-full py-4 rounded-2xl bg-[#B6C61A] text-[#006344] disabled:opacity-60 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                         >
-                          {attendanceLoading && !isWaitingFingerprint ? <Loader2 className="animate-spin" size={16} /> : isWaitingFingerprint ? (
-                            <span className="flex items-center gap-2"><Loader2 className="animate-spin" size={16} /> En attente de l&apos;empreinte...</span>
-                          ) : <><Fingerprint size={16} /> {hasBiometricCredential === false ? 'Enregistrer & Valider empreinte' : 'Valider empreinte'}</>}
+                          {attendanceLoading && !isWaitingFingerprint ? (
+                            <Loader2 className="animate-spin" size={16} />
+                          ) : isWaitingFingerprint ? (
+                            <span className="flex items-center gap-2">
+                              <Loader2 className="animate-spin" size={16} /> En attente de l&apos;empreinte...
+                            </span>
+                          ) : (
+                            <>
+                              <Fingerprint size={16} />{' '}
+                              {hasTodayIn && !hasTodayOut
+                                ? 'Valider empreinte (sortie)'
+                                : hasBiometricCredential === false
+                                  ? 'Enregistrer & Valider empreinte'
+                                  : 'Valider empreinte'}
+                            </>
+                          )}
                         </button>
                       )}
                     </div>
