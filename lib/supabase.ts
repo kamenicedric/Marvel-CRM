@@ -48,34 +48,85 @@ const mapToDb = (obj: any) => {
     clientName: 'client_name',
     totalAmount: 'total_amount',
     // Visa Photo Mapping
-    visaPhotoUrl: 'visa_photo_url'
+    visaPhotoUrl: 'visa_photo_url',
+    // Projects: équipe assignée (colonne créée sans guillemets → lowercase)
+    assignedTeam: 'assignedteam'
   };
 
   Object.keys(obj).forEach(key => {
     const dbKey = keys[key] || key;
-    mapped[dbKey] = obj[key];
+    let value = obj[key];
+
+    // Normaliser toutes les dates optionnelles : ne jamais envoyer "" sur une colonne DATE
+    if (
+      (typeof value === 'string' && value.trim() === '') &&
+      (dbKey.endsWith('_date') || dbKey === 'deadline')
+    ) {
+      value = null;
+    }
+
+    mapped[dbKey] = value;
   });
   return mapped;
 };
 
 export const projectsService = {
   async getAll() {
-    const { data, error } = await supabase
-      .from('wedding_projects')
-      .select('*')
-      .order('wedding_date', { ascending: true });
-    if (error) throw error;
-    return data || [];
+    try {
+      const { data, error } = await supabase
+        .from('wedding_projects')
+        .select('*')
+        .order('wedding_date', { ascending: true });
+      if (error) throw error;
+      return data || [];
+    } catch (err: any) {
+      // Gérer proprement les requêtes annulées (AbortController / navigation)
+      if (
+        err?.name === 'AbortError' ||
+        err?.message?.includes('aborted') ||
+        err?.message?.includes('signal is aborted')
+      ) {
+        throw new Error('Requête annulée');
+      }
+      throw err;
+    }
   },
   async create(project: any) {
-    const dbData = mapToDb(project);
-    const { data, error } = await supabase
-      .from('wedding_projects')
-      .insert([dbData])
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
+    try {
+      const dbData = mapToDb(project);
+      const defaultPole = { currentStep: 0, assignedTo: '', status: 'pending' };
+      const payload = {
+        ...dbData,
+        status: dbData.status ?? 'Planification',
+        progress: dbData.progress ?? 0,
+        amount: dbData.amount ?? 0,
+        delay_days: dbData.delay_days ?? 0,
+        is_legacy: dbData.is_legacy ?? false,
+        requires_sync: dbData.requires_sync ?? false,
+        pole_dvd: dbData.pole_dvd ?? defaultPole,
+        pole_film: dbData.pole_film ?? defaultPole,
+        pole_photo: dbData.pole_photo ?? defaultPole,
+        pole_com: dbData.pole_com ?? defaultPole,
+        client_feedbacks: dbData.client_feedbacks ?? [],
+      };
+      const { data, error } = await supabase
+        .from('wedding_projects')
+        .insert([payload])
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    } catch (err: any) {
+      // Gérer proprement les erreurs d'annulation côté réseau/Supabase
+      if (
+        err?.name === 'AbortError' ||
+        err?.message?.includes('aborted') ||
+        err?.message?.includes('signal is aborted')
+      ) {
+        throw new Error('Requête annulée (connexion interrompue ou navigation).');
+      }
+      throw err;
+    }
   },
   async update(id: string, updates: any) {
     const dbData = mapToDb(updates);

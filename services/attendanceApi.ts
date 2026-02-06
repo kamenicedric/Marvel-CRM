@@ -4,8 +4,8 @@ export type AttendanceEntry = {
   id: string;
   employee_id: string;
   type: 'IN' | 'OUT';
-  method: 'FACE' | 'BIO';
-  status: 'PRESENT' | 'EN_RETARD' | 'REFUSE';
+  method: 'FACE' | 'BIO' | 'VISA';
+  status?: 'PRESENT' | 'EN_RETARD' | 'REFUSE';
   note?: string | null;
   lat?: number | null;
   lng?: number | null;
@@ -25,6 +25,26 @@ export async function attendanceMe(employeeId: string) {
     throw new Error(`Réponse invalide: ${text.substring(0, 100)}`);
   }
   if (!res.ok) throw new Error(data?.error || 'Erreur récupération pointage');
+  return data as { entries: AttendanceEntry[] };
+}
+
+export async function attendanceHistory(employeeId: string, monthOffset = 0) {
+  const params = new URLSearchParams({
+    employeeId: encodeURIComponent(employeeId),
+  });
+  if (monthOffset !== 0) {
+    params.append('monthOffset', String(monthOffset));
+  }
+  const res = await fetch(`/api/attendance/history?${params.toString()}`);
+  const text = await res.text();
+  if (!text) throw new Error('Réponse vide du serveur');
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`Réponse invalide: ${text.substring(0, 100)}`);
+  }
+  if (!res.ok) throw new Error(data?.error || 'Erreur récupération historique pointage');
   return data as { entries: AttendanceEntry[] };
 }
 

@@ -124,8 +124,21 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ isOpen, onClose, onSa
     setIsSubmitting(true);
     try {
       await onSave(formData);
-    } catch (err) {
-      alert("Erreur lors de la création du dossier.");
+    } catch (err: any) {
+      console.error("Création projet:", err);
+      let msg: string = err?.message || err?.error_description || "Erreur lors de la création du dossier.";
+      if (typeof msg !== "string") msg = "Erreur lors de la création du dossier.";
+
+      // Cas particulier : AbortError / signal aborted => message plus clair
+      if (
+        msg.includes("AbortError") ||
+        msg.includes("signal is aborted") ||
+        msg.includes("Requête annulée")
+      ) {
+        msg = "Création annulée ou interrompue. Vérifiez votre connexion et réessayez.";
+      }
+
+      alert("Erreur lors de la création du dossier. " + msg);
     } finally {
       setIsSubmitting(false);
     }

@@ -137,16 +137,8 @@ const DvdAdminSpace: React.FC<DvdAdminSpaceProps> = ({ member, onNotificationTri
     if (onNotificationSummaryChange) onNotificationSummaryChange({ unreadCount });
   }, [unreadCount, onNotificationSummaryChange]);
 
-  // Empêcher l'ouverture automatique du panneau au premier rendu
-  const notifFirstRenderRef = useRef(true);
-  useEffect(() => {
-    if (onNotificationTrigger === undefined) return;
-    if (notifFirstRenderRef.current) {
-      notifFirstRenderRef.current = false;
-      return;
-    }
-    setShowNotifications(prev => !prev);
-  }, [onNotificationTrigger]);
+  // IMPORTANT UX: ne jamais ouvrir automatiquement le panneau de notifications.
+  // Ouverture/fermeture uniquement via clic utilisateur sur la cloche dans l'UI.
 
   const markAllAsRead = () => setNotifications(prev => prev.map(n => ({ ...n, read: true })));
 

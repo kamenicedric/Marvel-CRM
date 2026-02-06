@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { tasksService, projectsService, biometricService, pointageService, supabase } from '../../lib/supabase.ts';
 import { ProductionTask, TeamMember, WeddingProject } from '../../types.ts';
 import ProjectQuickView from '../shared/ProjectQuickView.tsx';
-import { attendanceCheckIn, attendanceMe } from '../../services/attendanceApi';
+import { attendanceCheckIn, attendanceMe, attendanceHistory, AttendanceEntry } from '../../services/attendanceApi';
 import {
   ATTENDANCE_ZONE_RADIUS_METERS,
 } from '../../lib/attendanceConfig';
@@ -24,7 +24,7 @@ import {
   Scissors, Film, Mic2, AlertOctagon, Send, ChevronRight as ChevronRightIcon,
   SearchCheck, Briefcase, ArrowUpRight, Award,
   Image as ImageIcon, Fingerprint, ScanFace, Lock, Camera,
-  Bell, LogOut
+  Bell
 } from 'lucide-react';
 
 interface EmployeeSpaceProps {
@@ -118,10 +118,15 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceEntry, setAttendanceEntry] = useState<any | null>(null);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
+  const [monthlyAttendance, setMonthlyAttendance] = useState<AttendanceEntry[]>([]);
   const [showAttendanceModal, setShowAttendanceModal] = useState(false);
   const [attendanceMode, setAttendanceMode] = useState<'SELFIE' | 'BIO'>('SELFIE');
   const [selfiePreview, setSelfiePreview] = useState<string | null>(null);
   const [hasBiometricCredential, setHasBiometricCredential] = useState<boolean | null>(null);
+  const [isBiometricActive, setIsBiometricActive] = useState(false);
+  const [isWaitingFingerprint, setIsWaitingFingerprint] = useState(false);
+  const [biometricTimeoutReached, setBiometricTimeoutReached] = useState(false);
+  const biometricTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selfieVideoRef = useRef<HTMLVideoElement>(null);
   const selfieCanvasRef = useRef<HTMLCanvasElement>(null);
   const selfieStreamRef = useRef<MediaStream | null>(null);
@@ -395,18 +400,8 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
 
-  // Ouvrir / fermer le panneau de notifications lorsqu'on clique sur la cloche du header (MasterDashboard)
-  // On ignore le tout premier rendu pour éviter une ouverture automatique au chargement
-  const notifFirstRenderRef = useRef(true);
-  useEffect(() => {
-    if (onNotificationTrigger === undefined) return;
-    if (notifFirstRenderRef.current) {
-      notifFirstRenderRef.current = false;
-      return;
-    }
-    // On toggle simplement l'état d'ouverture
-    setShowNotifications(prev => !prev);
-  }, [onNotificationTrigger]);
+  // IMPORTANT UX: le panneau de notifications ne doit JAMAIS s'ouvrir automatiquement.
+  // Ouverture/fermeture uniquement via clic utilisateur sur la cloche dans l'UI.
 
   // ... (Calculs statsBonus et financeData inchangés) ...
   const statsBonus = useMemo(() => {
@@ -587,6 +582,18 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
 
       // Si aucun credential et qu'on autorise l'enregistrement, créer un nouveau credential
       if (!hasCredentials && allowRegistration) {
+        setIsBiometricActive(true);
+        setIsWaitingFingerprint(true);
+        setBiometricTimeoutReached(false);
+        if (biometricTimeoutRef.current) {
+          clearTimeout(biometricTimeoutRef.current);
+          biometricTimeoutRef.current = null;
+        }
+        biometricTimeoutRef.current = setTimeout(() => {
+          setBiometricTimeoutReached(true);
+          biometricTimeoutRef.current = null;
+        }, 60000);
+
         const challenge = crypto.getRandomValues(new Uint8Array(32));
         const publicKey: PublicKeyCredentialCreationOptions = {
           challenge,
@@ -605,7 +612,17 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
           attestation: "direct"
         };
 
-        const newCredential = await navigator.credentials.create({ publicKey }) as PublicKeyCredential;
+        let newCredential: PublicKeyCredential | null = null;
+        try {
+          newCredential = await navigator.credentials.create({ publicKey }) as PublicKeyCredential;
+        } finally {
+          if (biometricTimeoutRef.current) {
+            clearTimeout(biometricTimeoutRef.current);
+            biometricTimeoutRef.current = null;
+          }
+          setIsWaitingFingerprint(false);
+          setIsBiometricActive(false);
+        }
 
         if (newCredential && 'response' in newCredential) {
           const response = newCredential.response as AuthenticatorAttestationResponse;
@@ -669,17 +686,43 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
         userVerification: 'required',
       };
 
+      // Garder la session biométrique active : états UI + timeout 60s côté interface
+      setIsBiometricActive(true);
+      setIsWaitingFingerprint(true);
+      setBiometricTimeoutReached(false);
+      if (biometricTimeoutRef.current) {
+        clearTimeout(biometricTimeoutRef.current);
+        biometricTimeoutRef.current = null;
+      }
+      biometricTimeoutRef.current = setTimeout(() => {
+        setBiometricTimeoutReached(true);
+        biometricTimeoutRef.current = null;
+      }, 60000);
+
       let cred: PublicKeyCredential | null = null;
       try {
         cred = (await navigator.credentials.get({ publicKey })) as PublicKeyCredential | null;
       } catch (getErr) {
+        if (biometricTimeoutRef.current) {
+          clearTimeout(biometricTimeoutRef.current);
+          biometricTimeoutRef.current = null;
+        }
+        setIsWaitingFingerprint(false);
+        setIsBiometricActive(false);
         // Sur mobile, si l'authentification échoue (ex: pas de clé trouvée), on propose l'enregistrement
         if (deviceIsMobile) {
           throw new Error('ENREGISTREMENT_REQUIRED');
         }
-        throw getErr;
+        throw new Error('Aucune empreinte détectée, veuillez réessayer.');
+      } finally {
+        if (biometricTimeoutRef.current) {
+          clearTimeout(biometricTimeoutRef.current);
+          biometricTimeoutRef.current = null;
+        }
+        setIsWaitingFingerprint(false);
+        setIsBiometricActive(false);
       }
-      if (!cred) throw new Error('Biométrie refusée');
+      if (!cred) throw new Error('Aucune empreinte détectée, veuillez réessayer.');
 
       // Mettre à jour la date de dernière utilisation dans la base de données
       await biometricService.updateLastUsed(credentialId);
@@ -731,12 +774,26 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
         setAttendanceEntry(null);
         setDistanceToZoneMeters(null);
       }
+      // Recharger l'historique mensuel après mise à jour de l'entrée du jour
+      loadMonthlyAttendance();
     } catch (err: any) {
       // Ignorer les erreurs AbortError (requêtes annulées)
       if (err?.name !== 'AbortError' && !err?.message?.includes('aborted')) {
         console.warn('Erreur chargement pointage:', err);
       }
       // On garde l'UX fluide même en cas d'erreur
+    }
+  };
+
+  // Charger l'historique du mois courant pour l'employé
+  const loadMonthlyAttendance = async () => {
+    if (!member?.id) return;
+    try {
+      const { entries } = await attendanceHistory(member.id, 0);
+      setMonthlyAttendance(entries || []);
+    } catch (err: any) {
+      console.warn('Erreur chargement historique pointage:', err?.message || String(err));
+      setMonthlyAttendance([]);
     }
   };
 
@@ -748,6 +805,7 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
       }
 
       loadTodayAttendance();
+      loadMonthlyAttendance();
       // Vérifier si l'employé a une empreinte enregistrée
       if (member?.id) {
         biometricService.getCredentialsByEmployee(member.id)
@@ -757,6 +815,16 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, member?.id]);
+
+  // Nettoyage du timeout biométrique au démontage
+  useEffect(() => {
+    return () => {
+      if (biometricTimeoutRef.current) {
+        clearTimeout(biometricTimeoutRef.current);
+        biometricTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const openAttendanceFlow = async () => {
     setAttendanceError(null);
@@ -836,6 +904,8 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
         setDistanceToZoneMeters(r.entry.distance_meters ?? null);
         setShowAttendanceModal(false);
       }
+      // Après chaque pointage, rafraîchir l'historique du mois
+      await loadMonthlyAttendance();
     } catch (e: any) {
       setAttendanceError(e?.message || 'Erreur check-in');
     } finally {
@@ -1181,20 +1251,6 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
 
   return (
     <div className={`space-y-8 animate-in fade-in duration-700 pb-24 max-w-[1600px] mx-auto transition-all ${isFocusMode ? 'p-4' : ''}`}>
-      {/* Bouton de déconnexion mobile (fixe en bas de l'écran) */}
-      {isMobile && onLogout && (
-        <div className="fixed bottom-4 left-0 right-0 z-40 md:hidden flex justify-center pointer-events-none">
-          <button
-            onClick={onLogout}
-            className="pointer-events-auto px-6 py-3 bg-red-500 text-white rounded-full shadow-xl hover:bg-red-600 transition-all hover:scale-105 active:scale-95 flex items-center gap-2 text-xs font-black uppercase"
-            title="Déconnexion"
-          >
-            <LogOut size={20} />
-            <span>Déconnexion</span>
-          </button>
-        </div>
-      )}
-
       {/* Panneau de notifications (ouvert/fermé par la cloche du header principal) */}
       {showNotifications && (
         <div className="fixed top-20 right-4 z-50">
@@ -1540,17 +1596,43 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
                           <span className="text-amber-300">
                             ⚠️ Première utilisation : Cliquez sur "Valider empreinte" pour enregistrer votre empreinte digitale. Le système vous guidera automatiquement.
                           </span>
+                        ) : isWaitingFingerprint ? (
+                          <span className="text-[#B6C61A] flex items-center gap-2">
+                            <Loader2 className="animate-spin flex-shrink-0" size={14} />
+                            En attente de l&apos;empreinte digitale...
+                          </span>
                         ) : (
                           'Appuie sur "Valider empreinte" (WebAuthn). Si l\'appareil ne supporte pas, le système refusera.'
                         )}
                       </div>
-                      <button
-                        onClick={submitAttendance}
-                        disabled={attendanceLoading}
-                        className="w-full py-4 rounded-2xl bg-[#B6C61A] text-[#006344] text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
-                      >
-                        {attendanceLoading ? <Loader2 className="animate-spin" size={16} /> : <><Fingerprint size={16} /> {hasBiometricCredential === false ? 'Enregistrer & Valider empreinte' : 'Valider empreinte'}</>}
-                      </button>
+                      {(biometricTimeoutReached || (attendanceError && !isWaitingFingerprint)) ? (
+                        <div className="space-y-3">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-amber-300">
+                            {biometricTimeoutReached ? 'Aucune empreinte détectée, veuillez réessayer.' : attendanceError}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBiometricTimeoutReached(false);
+                              setAttendanceError(null);
+                              submitAttendance();
+                            }}
+                            className="w-full py-4 rounded-2xl bg-[#B6C61A] text-[#006344] text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                          >
+                            <Fingerprint size={16} /> Relancer la biométrie
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={submitAttendance}
+                          disabled={attendanceLoading || isWaitingFingerprint}
+                          className="w-full py-4 rounded-2xl bg-[#B6C61A] text-[#006344] disabled:opacity-60 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                        >
+                          {attendanceLoading && !isWaitingFingerprint ? <Loader2 className="animate-spin" size={16} /> : isWaitingFingerprint ? (
+                            <span className="flex items-center gap-2"><Loader2 className="animate-spin" size={16} /> En attente de l&apos;empreinte...</span>
+                          ) : <><Fingerprint size={16} /> {hasBiometricCredential === false ? 'Enregistrer & Valider empreinte' : 'Valider empreinte'}</>}
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -1564,48 +1646,125 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
             )}
           </div>
 
-          {/* Activity Log */}
+          {/* Activity Log - Historique mensuel */}
           <div className="bg-white p-10 rounded-[4rem] border border-slate-100 shadow-sm flex flex-col space-y-8 min-h-[600px]">
             <div className="flex items-center justify-between border-b border-slate-50 pb-6">
               <h3 className="text-xl font-black text-[#006344] uppercase italic flex items-center gap-3">
-                <History size={24} className="text-[#B6C61A]" /> Historique Accès
+                <History size={24} className="text-[#B6C61A]" /> Historique Pointage (mois en cours)
               </h3>
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest italic">Aujourd'hui</span>
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest italic">
+                {new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+              </span>
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-4 no-scrollbar pr-2">
-              {clockHistory.map((h, i) => (
-                <div key={i} className="flex items-center justify-between p-4 bg-slate-50/50 rounded-2xl border border-slate-100 group hover:border-[#B6C61A]/30 transition-all">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-14 h-14 rounded-xl flex items-center justify-center border border-slate-200 bg-white ${h.method === 'FACE' || h.method === 'VISA' ? '' : 'text-[#B6C61A]'}`}>
-                      {h.method === 'FACE' ? (
-                        <img src={h.img} className="w-full h-full object-cover rounded-xl" alt="Face" />
-                      ) : h.method === 'VISA' ? (
-                        <img src={h.img} className="w-full h-full object-cover rounded-xl" alt="Visa" />
-                      ) : (
-                        <Fingerprint size={24} />
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-xs font-black text-slate-900 uppercase italic flex items-center gap-2">
-                        {h.type === 'IN' ? 'Entrée' : 'Sortie'}
-                        <span className="text-[8px] text-slate-400 bg-white border border-slate-100 px-1.5 py-0.5 rounded">{h.method === 'VISA' ? 'VISA' : h.method}</span>
-                      </p>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{h.time}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${h.type === 'IN' ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-                    <Lock size={14} className="text-slate-200" />
-                  </div>
-                </div>
-              ))}
-              {clockHistory.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-20 opacity-20 italic">
-                  <Fingerprint size={48} className="mb-4 text-slate-400" />
-                  <p className="text-sm font-black uppercase tracking-widest text-slate-400">Aucun mouvement</p>
+              {monthlyAttendance.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-20 opacity-60 italic">
+                  <Fingerprint size={40} className="mb-3 text-slate-300" />
+                  <p className="text-sm font-black uppercase tracking-widest text-slate-400 text-center">
+                    Aucun pointage enregistré pour ce mois
+                  </p>
                 </div>
               )}
+
+              {monthlyAttendance.length > 0 &&
+                // Regrouper par jour et constituer les couples Entrée/Sortie
+                Object.values(
+                  monthlyAttendance.reduce<Record<string, { date: string; in?: AttendanceEntry; out?: AttendanceEntry }>>(
+                    (acc, entry) => {
+                      const d = new Date(entry.timestamp);
+                      const dateKey = d.toISOString().split('T')[0];
+                      if (!acc[dateKey]) {
+                        acc[dateKey] = { date: dateKey };
+                      }
+                      if (entry.type === 'IN' && !acc[dateKey].in) {
+                        acc[dateKey].in = entry;
+                      } else if (entry.type === 'OUT' && !acc[dateKey].out) {
+                        acc[dateKey].out = entry;
+                      }
+                      return acc;
+                    },
+                    {}
+                  )
+                )
+                  .sort((a, b) => a.date.localeCompare(b.date))
+                  .map((day) => {
+                    const inTime = day.in ? new Date(day.in.timestamp) : null;
+                    const outTime = day.out ? new Date(day.out.timestamp) : null;
+                    const durationMs =
+                      inTime && outTime ? Math.max(0, outTime.getTime() - inTime.getTime()) : null;
+                    const hours = durationMs ? Math.floor(durationMs / (1000 * 60 * 60)) : 0;
+                    const minutes = durationMs
+                      ? Math.floor((durationMs / (1000 * 60)) % 60)
+                      : 0;
+
+                    const selfieThumb =
+                      day.in?.selfie_url || day.out?.selfie_url || undefined;
+
+                    return (
+                      <div
+                        key={day.date}
+                        className="flex items-center justify-between p-4 bg-slate-50/50 rounded-2xl border border-slate-100 group hover:border-[#B6C61A]/30 transition-all"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-14 h-14 rounded-xl flex items-center justify-center border border-slate-200 bg-white overflow-hidden">
+                            {selfieThumb ? (
+                              <img
+                                src={selfieThumb}
+                                alt="Selfie pointage"
+                                className="w-full h-full object-cover cursor-pointer"
+                                onClick={() => window.open(selfieThumb, '_blank')}
+                              />
+                            ) : (
+                              <Fingerprint size={24} className="text-[#B6C61A]" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-xs font-black text-slate-900 uppercase italic flex items-center gap-2">
+                              {new Date(day.date).toLocaleDateString('fr-FR', {
+                                weekday: 'short',
+                                day: '2-digit',
+                                month: '2-digit',
+                              })}
+                            </p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">
+                              Entrée:{' '}
+                              {inTime
+                                ? inTime.toLocaleTimeString('fr-FR', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : '—'}
+                              {'  ·  '}
+                              Sortie:{' '}
+                              {outTime
+                                ? outTime.toLocaleTimeString('fr-FR', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : '—'}
+                            </p>
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">
+                              Durée:{' '}
+                              {durationMs ? `${hours}h${minutes.toString().padStart(2, '0')}` : '—'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 text-[9px] font-black uppercase tracking-widest text-slate-400">
+                          {day.in && (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-600">
+                              IN {day.in.method}
+                            </span>
+                          )}
+                          {day.out && (
+                            <span className="px-2 py-0.5 rounded-full bg-rose-50 border border-rose-100 text-rose-600">
+                              OUT {day.out.method}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
             </div>
           </div>
         </div>

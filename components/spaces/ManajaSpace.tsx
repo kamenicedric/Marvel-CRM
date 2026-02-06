@@ -94,8 +94,18 @@ const ManajaSpace: React.FC<ManajaSpaceProps> = ({ onNotificationTrigger, onNoti
       setProjects(transformed);
       setLeads(lData);
       setAllTasks(tData);
-    } catch (error) {
-      console.error("Fetch failure:", error);
+    } catch (error: any) {
+      const msg = error?.message || String(error);
+      // Ne pas spammer la console pour les requêtes annulées (AbortError)
+      if (
+        error?.name === 'AbortError' ||
+        msg.includes('aborted') ||
+        msg.includes('signal is aborted')
+      ) {
+        console.warn("Fetch projects/CRM annulé:", msg);
+      } else {
+        console.error("Fetch failure:", error);
+      }
     } finally {
       if (!silent) setLoading(false);
     }
@@ -168,16 +178,8 @@ const ManajaSpace: React.FC<ManajaSpaceProps> = ({ onNotificationTrigger, onNoti
     if (onNotificationSummaryChange) onNotificationSummaryChange({ unreadCount });
   }, [unreadCount, onNotificationSummaryChange]);
 
-  // Empêcher l'ouverture automatique du panneau au premier rendu
-  const notifFirstRenderRef = useRef(true);
-  useEffect(() => {
-    if (onNotificationTrigger === undefined) return;
-    if (notifFirstRenderRef.current) {
-      notifFirstRenderRef.current = false;
-      return;
-    }
-    setShowNotifications(prev => !prev);
-  }, [onNotificationTrigger]);
+  // IMPORTANT UX: le panneau ne doit JAMAIS s'ouvrir automatiquement.
+  // Ouverture/fermeture uniquement via clic utilisateur sur la cloche dans l'UI.
 
   const markAllAsRead = () => setNotifications(prev => prev.map(n => ({ ...n, read: true })));
 

@@ -133,7 +133,9 @@ const PrestationsModule: React.FC<PrestationsModuleProps> = ({ projects, leads, 
     
     try {
       if (type === 'project') {
-        await projectsService.delete(id);
+        // Dans "Prestations", un item "project" correspond à un vrai dossier (wedding_projects).
+        // Pour éviter une suppression DB dangereuse (RLS, dépendances, historique), on archive plutôt.
+        await projectsService.update(id, { status: 'Archivé' });
       } else {
         // Suppression d'un lead (prestation simple)
         // Note: leadsService.delete doit être disponible ou on update le statut à 'Archivé'
@@ -147,7 +149,8 @@ const PrestationsModule: React.FC<PrestationsModuleProps> = ({ projects, leads, 
       if (onRefresh) onRefresh();
     } catch (err) {
       console.error(err);
-      alert("Erreur lors de la suppression.");
+      const msg = (err as any)?.message || "Erreur lors de la suppression.";
+      alert(msg);
     }
   };
 
@@ -344,13 +347,21 @@ const PrestationsModule: React.FC<PrestationsModuleProps> = ({ projects, leads, 
                           <div 
                             key={m.id} 
                             onClick={(e) => { e.stopPropagation(); handleEdit(m); }}
-                            className={`p-4 rounded-2xl text-[9px] font-black uppercase italic leading-tight transition-all shadow-md border-l-[8px] cursor-pointer hover:translate-x-1 ${
+                            className={`group/card p-4 rounded-2xl text-[9px] font-black uppercase italic leading-tight transition-all shadow-md border-l-[8px] cursor-pointer hover:translate-x-1 relative ${
                               m.isPaid 
                                 ? 'bg-[#006344] text-white border-[#B6C61A]' 
                                 : 'bg-red-600 text-white border-red-900 animate-pulse-subtle'
                             }`}
                           >
-                            <div className="truncate mb-1.5 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleDelete(m.id, m.sourceType); }}
+                              className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/20 hover:bg-red-900/50 text-white opacity-0 group-hover/card:opacity-100 transition-opacity"
+                              title="Supprimer la prestation"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                            <div className="truncate mb-1.5 flex items-center gap-2 pr-6">
                                {m.isPaid ? <BadgeCheck size={12} className="text-[#B6C61A]"/> : <AlertCircle size={12} className="text-white"/>}
                                {m.title}
                             </div>
@@ -412,7 +423,7 @@ const PrestationsModule: React.FC<PrestationsModuleProps> = ({ projects, leads, 
                       <span className={`text-3xl font-black italic tabular-nums transition-colors cursor-pointer ${p.isPaid ? 'text-slate-900 group-hover:text-[#006344]' : 'text-red-700'}`}>{p.amount?.toLocaleString()} <span className="text-xs opacity-20 italic">XAF</span></span>
                     </td>
                     <td className="px-12 py-10 text-right">
-                      <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center justify-end gap-3 opacity-80 group-hover:opacity-100 transition-opacity">
                         <button 
                           onClick={(e) => { e.stopPropagation(); handleEdit(p); }} 
                           className="p-3 bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-[#006344] hover:shadow-md transition-all"
@@ -423,7 +434,7 @@ const PrestationsModule: React.FC<PrestationsModuleProps> = ({ projects, leads, 
                         <button 
                           onClick={(e) => { e.stopPropagation(); handleDelete(p.id, p.sourceType); }} 
                           className="p-3 bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-red-600 hover:shadow-md transition-all"
-                          title="Supprimer"
+                          title="Supprimer la prestation"
                         >
                           <Trash2 size={18} />
                         </button>
