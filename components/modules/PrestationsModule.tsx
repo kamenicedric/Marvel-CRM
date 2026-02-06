@@ -62,7 +62,8 @@ const PrestationsModule: React.FC<PrestationsModuleProps> = ({ projects, leads, 
   // Fusion dynamique avec identification de la source pour le CRUD
   const allPrestations = useMemo(() => {
     const fromProjects = projects
-      .filter(p => p.country === 'Cameroun')
+      // Ne pas afficher les dossiers archivés
+      .filter(p => p.country === 'Cameroun' && p.status !== 'Archivé')
       .map(p => ({
         id: p.id,
         sourceType: 'project' as const,
@@ -77,7 +78,8 @@ const PrestationsModule: React.FC<PrestationsModuleProps> = ({ projects, leads, 
       }));
 
     const fromLeads = leads
-      .filter(l => l.wedding_date && (l.country === 'Cameroun' || !l.country))
+      // Ne pas afficher les leads archivés
+      .filter(l => l.wedding_date && (l.country === 'Cameroun' || !l.country) && l.status !== 'Archivé')
       .map(l => {
         const isPaidInfo = l.notes?.some(n => n.toLowerCase().includes('acompte versé')) || l.status === 'Converti';
         return {
@@ -459,7 +461,7 @@ const PrestationsModule: React.FC<PrestationsModuleProps> = ({ projects, leads, 
       {isModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
            <div className="absolute inset-0 bg-black/95 backdrop-blur-md animate-in fade-in duration-300" onClick={() => setIsModalOpen(false)}></div>
-           <div className="relative bg-[#FDFDFD] w-full max-w-2xl rounded-[4rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-500 border border-white/10">
+           <div className="relative bg-[#FDFDFD] w-full max-w-2xl max-h-[90vh] rounded-[4rem] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-500 border border-white/10">
               <div className={`p-12 text-white relative transition-colors duration-500 ${formData.isPaid ? 'bg-[#006344]' : 'bg-red-600'}`}>
                  <button onClick={() => setIsModalOpen(false)} className="absolute top-8 right-8 p-3 hover:bg-white/10 rounded-full transition-all text-white/40 hover:text-white"><X size={32}/></button>
                  <div className="flex items-center gap-8">
@@ -477,7 +479,7 @@ const PrestationsModule: React.FC<PrestationsModuleProps> = ({ projects, leads, 
                  </div>
               </div>
 
-              <div className="p-12 space-y-10 bg-white">
+              <div className="p-12 space-y-10 bg-white flex-1 overflow-y-auto">
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                     {/* STATUT PAIEMENT (Toggles segmentés) */}
                     <div className="md:col-span-2 space-y-4">
@@ -559,7 +561,14 @@ const PrestationsModule: React.FC<PrestationsModuleProps> = ({ projects, leads, 
                   disabled={isSubmitting}
                   className={`flex-[2] py-6 rounded-[2rem] font-black text-[12px] uppercase tracking-[0.2em] shadow-2xl flex items-center justify-center gap-4 hover:scale-[1.02] active:scale-95 transition-all ${formData.isPaid ? 'bg-[#006344] text-[#B6C61A]' : 'bg-red-600 text-white'}`}
                  >
-                    {isSubmitting ? <Loader2 size={24} className="animate-spin" /> : <><Check size={24} strokeWidth={4} /> {editingId ? 'Mettre à jour' : 'Confirmer l\'Indexation'}</>}
+                    {isSubmitting ? (
+                      <Loader2 size={24} className="animate-spin" />
+                    ) : (
+                      <>
+                        <Check size={24} strokeWidth={4} />
+                        {editingId ? 'Mettre à jour' : 'Enregistrer la prestation'}
+                      </>
+                    )}
                  </button>
               </div>
            </div>
