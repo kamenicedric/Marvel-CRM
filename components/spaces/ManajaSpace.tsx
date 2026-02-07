@@ -261,6 +261,31 @@ const ManajaSpace: React.FC<ManajaSpaceProps> = ({ onNotificationTrigger, onNoti
                 setSelectedProject(p);
                 setActiveSubTab('tasks');
               }}
+              onDeleteProject={async (id) => {
+                if (!window.confirm('Supprimer définitivement ce projet ? Cette action est irréversible.')) return;
+                try {
+                  await projectsService.delete(id);
+                  fetchData();
+                } catch (e: any) {
+                  const msg = e?.message || '';
+                  if (msg.includes('foreign key') || msg.includes('violates') || msg.includes('RLS')) {
+                    if (window.confirm('Impossible de supprimer (données liées). Archiver le projet à la place ?')) {
+                      await projectsService.update(id, { status: 'Archivé' });
+                      fetchData();
+                    }
+                  } else {
+                    alert('Erreur lors de la suppression: ' + msg);
+                  }
+                }
+              }}
+              onArchiveProject={async (id) => {
+                try {
+                  await projectsService.update(id, { status: 'Archivé' });
+                  fetchData();
+                } catch (e: any) {
+                  alert('Erreur: ' + (e?.message || 'Archivage impossible'));
+                }
+              }}
             />
           )}
           {activeSubTab === 'prestations' && (
@@ -299,8 +324,37 @@ const ManajaSpace: React.FC<ManajaSpaceProps> = ({ onNotificationTrigger, onNoti
             setIsEditProjectOpen(false);
             fetchData();
           }} 
-          onArchive={() => fetchData()} 
-          onDelete={() => fetchData()} 
+          onArchive={async (projectId) => {
+            try {
+              await projectsService.update(projectId, { status: 'Archivé' });
+              setIsEditProjectOpen(false);
+              setSelectedProject(null);
+              fetchData();
+            } catch (e: any) {
+              alert('Erreur: ' + (e?.message || 'Archivage impossible'));
+            }
+          }} 
+          onDelete={async (projectId) => {
+            if (!window.confirm('Supprimer définitivement ce projet ? Cette action est irréversible.')) return;
+            try {
+              await projectsService.delete(projectId);
+              setIsEditProjectOpen(false);
+              setSelectedProject(null);
+              fetchData();
+            } catch (e: any) {
+              const msg = e?.message || '';
+              if (msg.includes('foreign key') || msg.includes('violates') || msg.includes('RLS')) {
+                if (window.confirm('Impossible de supprimer (données liées). Archiver le projet à la place ?')) {
+                  await projectsService.update(projectId, { status: 'Archivé' });
+                  setIsEditProjectOpen(false);
+                  setSelectedProject(null);
+                  fetchData();
+                }
+              } else {
+                alert('Erreur lors de la suppression: ' + msg);
+              }
+            }
+          }} 
         />
       )}
     </div>
