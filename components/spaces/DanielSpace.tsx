@@ -156,6 +156,18 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
   const [previousMissionsCount, setPreviousMissionsCount] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
 
+  // Synchroniser le panneau de notifications avec la cloche globale du header
+  // On ne doit JAMAIS ouvrir automatiquement à l'entrée dans l'espace,
+  // donc on compare avec la valeur précédente.
+  const notifTriggerRef = useRef(onNotificationTrigger ?? 0);
+  useEffect(() => {
+    if (typeof onNotificationTrigger !== 'number') return;
+    if (onNotificationTrigger > notifTriggerRef.current) {
+      setShowNotifications(prev => !prev);
+    }
+    notifTriggerRef.current = onNotificationTrigger;
+  }, [onNotificationTrigger]);
+
   // Détection mobile (pour le bouton de déconnexion et l'UX)
   useEffect(() => {
     const checkMobile = () => {

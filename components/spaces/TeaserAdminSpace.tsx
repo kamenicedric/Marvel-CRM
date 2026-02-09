@@ -113,6 +113,17 @@ const TeaserAdminSpace: React.FC<TeaserAdminSpaceProps> = ({ member, onNotificat
 
   const [matrixSearch, setMatrixSearch] = useState('');
 
+  // Synchroniser l'ouverture/fermeture du panneau avec la cloche globale (header)
+  // Sans ouverture automatique à l'arrivée dans l'espace.
+  const notifTriggerRef = useRef(onNotificationTrigger ?? 0);
+  useEffect(() => {
+    if (typeof onNotificationTrigger !== 'number') return;
+    if (onNotificationTrigger > notifTriggerRef.current) {
+      setShowNotifications(prev => !prev);
+    }
+    notifTriggerRef.current = onNotificationTrigger;
+  }, [onNotificationTrigger]);
+
   const fetchData = useCallback(async () => {
     try {
       const [allProjects, allTeam] = await Promise.all([ projectsService.getAll(), teamService.getAll() ]);

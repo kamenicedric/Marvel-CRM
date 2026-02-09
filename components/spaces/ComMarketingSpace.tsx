@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { projectsService, marketingCalendarService } from '../../lib/supabase.ts';
 import { TeamMember, WeddingProject } from '../../types.ts';
 import { GoogleGenAI } from "@google/genai";
@@ -20,6 +20,8 @@ import {
 
 interface ComMarketingSpaceProps {
   member: TeamMember | null;
+  onNotificationTrigger?: number;
+  onNotificationSummaryChange?: (summary: { unreadCount: number }) => void;
 }
 
 interface CustomTask {
@@ -34,6 +36,14 @@ interface DayOverride {
   studioRating?: number;
   weddingCompleted?: boolean;
   weddingRating?: number;
+}
+
+interface ComMarketingNotification {
+  id: string;
+  title: string;
+  message: string;
+  date: Date;
+  read: boolean;
 }
 
 // --- CONTENU DES SCRIPTS ---
@@ -87,7 +97,11 @@ const growthMatrix = [
   }
 ];
 
-const ComMarketingSpace: React.FC<ComMarketingSpaceProps> = ({ member }) => {
+const ComMarketingSpace: React.FC<ComMarketingSpaceProps> = ({
+  member,
+  onNotificationTrigger,
+  onNotificationSummaryChange,
+}) => {
   const [activeTab, setActiveTab] = useState<'daily' | 'pub_calendar' | 'scripts' | 'growth' | 'targeting' | 'content_lab'>('pub_calendar');
   const [activeScriptCategory, setActiveScriptCategory] = useState<'wa' | 'bios' | 'rep' | 'funnel'>('wa');
   const [projects, setProjects] = useState<WeddingProject[]>([]);
@@ -96,6 +110,10 @@ const ComMarketingSpace: React.FC<ComMarketingSpaceProps> = ({ member }) => {
   const [generatedCopy, setGeneratedCopy] = useState<{ig: string, tiktok: string, fb: string, news: string} | null>(null);
   const [selectedProjectForAi, setSelectedProjectForAi] = useState<string>("");
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+
+  // Notifications Marketing (placeholder pour l'instant)
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<ComMarketingNotification[]>([]);
 
   // États pour le Calendrier
   const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date());
@@ -109,6 +127,31 @@ const ComMarketingSpace: React.FC<ComMarketingSpaceProps> = ({ member }) => {
       : null;
     return saved ? JSON.parse(saved) : {};
   });
+
+  // Compteur de non-lues pour le header global
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.read).length,
+    [notifications]
+  );
+
+  // Remonter le résumé des notifications au parent (MasterDashboard)
+  useEffect(() => {
+    if (onNotificationSummaryChange) {
+      onNotificationSummaryChange({ unreadCount });
+    }
+  }, [unreadCount, onNotificationSummaryChange]);
+
+  // Synchroniser le panneau de notifications Marketing avec la cloche globale du header.
+  // On ne doit JAMAIS ouvrir automatiquement à l'entrée dans l'espace,
+  // donc on regarde uniquement les incréments de onNotificationTrigger.
+  const notifTriggerRef = useRef(onNotificationTrigger ?? 0);
+  useEffect(() => {
+    if (typeof onNotificationTrigger !== 'number') return;
+    if (onNotificationTrigger > notifTriggerRef.current) {
+      setShowNotifications((prev) => !prev);
+    }
+    notifTriggerRef.current = onNotificationTrigger;
+  }, [onNotificationTrigger]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -303,8 +346,72 @@ const ComMarketingSpace: React.FC<ComMarketingSpaceProps> = ({ member }) => {
   const selectedDayData = getTaskForDay(selectedDay);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-700 pb-24 max-w-[1600px] mx-auto">
+    <div className="space-y-8 animate-in fade-in duration-700 pb-24 max-w-[1600px] mx-auto relative">
       
+      {/* PANNEAU NOTIFICATIONS MARKETING (ouvert/fermé par la cloche globale) */}
+      {showNotifications && (
+        <div className="fixed top-20 right-4 z-50 w-96 bg-white rounded-[2rem] shadow-2xl border border-slate-100 overflow-hidden">
+          <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+            <h3 className="text-sm font-black text-[#006344] uppercase italic">Notifications Marketing</h3>
+            {unreadCount > 0 && (
+              <button
+                onClick={() =>
+                  setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+                }
+                className="text-xs font-black text-[#006344] hover:underline"
+              >
+                Tout marquer comme lu
+              </button>
+            )}
+          </div>
+          <div className="max-h-96 overflow-y-auto">
+            {notifications.length === 0 ? (
+              <div className="p-8 text-center">
+                <Bell size={48} className="mx-auto mb-3 text-slate-200" />
+                <p className="text-sm font-black text-slate-400 uppercase italic">
+                  Aucune notification
+                </p>
+              </div>
+            ) : (
+              notifications.map((notif) => (
+                <div
+                  key={notif.id}
+                  className={`w-full p-4 border-b border-slate-50 ${
+                    !notif.read ? 'bg-blue-50/50' : ''
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`w-2 h-2 rounded-full mt-2 shrink-0 ${
+                        !notif.read ? 'bg-[#006344]' : 'bg-transparent'
+                      }`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={`text-xs font-black uppercase ${
+                          !notif.read ? 'text-[#006344]' : 'text-slate-600'
+                        }`}
+                      >
+                        {notif.title}
+                      </p>
+                      <p className="text-sm font-medium text-slate-700 italic truncate">
+                        {notif.message}
+                      </p>
+                      <span className="text-[9px] font-bold text-slate-400">
+                        {notif.date.toLocaleTimeString('fr-FR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
       {/* HEADER TABS */}
       <div className="flex bg-white p-2 rounded-3xl border border-slate-100 shadow-inner w-full overflow-x-auto no-scrollbar">
          {[

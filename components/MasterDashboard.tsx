@@ -344,7 +344,14 @@ const MasterDashboard: React.FC<MasterDashboardProps> = ({ space, member, onLogo
             onNotificationSummaryChange={({ unreadCount }) => setHeaderNotifUnread(unreadCount)}
           />
         );
-      case 'com': return <ComMarketingSpace member={member} />;
+      case 'com':
+        return (
+          <ComMarketingSpace
+            member={member}
+            onNotificationTrigger={headerNotifTrigger}
+            onNotificationSummaryChange={({ unreadCount }) => setHeaderNotifUnread(unreadCount)}
+          />
+        );
 
       // CAS PAR DÉFAUT (EMPLOYÉS DYNAMIQUES + SUPER ADMIN nar6)
       default:

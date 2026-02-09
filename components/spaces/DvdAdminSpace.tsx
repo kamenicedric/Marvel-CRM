@@ -65,6 +65,17 @@ const DvdAdminSpace: React.FC<DvdAdminSpaceProps> = ({ member, onNotificationTri
   const [quickViewProject, setQuickViewProject] = useState<WeddingProject | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<DvdNotif[]>([]);
+  // Synchroniser le panneau de notifications avec la cloche globale du header
+  // On ne déclenche l'ouverture/fermeture que lorsqu'on détecte une
+  // incrémentation de onNotificationTrigger (clic utilisateur), jamais au mount.
+  const notifTriggerRef = useRef(onNotificationTrigger ?? 0);
+  useEffect(() => {
+    if (typeof onNotificationTrigger !== 'number') return;
+    if (onNotificationTrigger > notifTriggerRef.current) {
+      setShowNotifications(prev => !prev);
+    }
+    notifTriggerRef.current = onNotificationTrigger;
+  }, [onNotificationTrigger]);
 
   const safeFormatDate = (dateStr: any) => {
     if (!dateStr) return 'TBD';

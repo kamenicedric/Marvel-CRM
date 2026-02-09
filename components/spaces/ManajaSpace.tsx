@@ -47,6 +47,17 @@ const ManajaSpace: React.FC<ManajaSpaceProps> = ({ onNotificationTrigger, onNoti
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<WeddingProject | null>(null);
 
+  // Synchroniser l'ouverture/fermeture du panneau avec la cloche globale (MasterDashboard)
+  // Sans jamais ouvrir automatiquement au chargement : on ignore la valeur initiale.
+  const notifTriggerRef = useRef(onNotificationTrigger ?? 0);
+  useEffect(() => {
+    if (typeof onNotificationTrigger !== 'number') return;
+    if (onNotificationTrigger > notifTriggerRef.current) {
+      setShowNotifications(prev => !prev);
+    }
+    notifTriggerRef.current = onNotificationTrigger;
+  }, [onNotificationTrigger]);
+
   const fetchData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
