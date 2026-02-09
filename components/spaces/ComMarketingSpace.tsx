@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { projectsService } from '../../lib/supabase.ts';
+import { projectsService, marketingCalendarService } from '../../lib/supabase.ts';
 import { TeamMember, WeddingProject } from '../../types.ts';
 import { GoogleGenAI } from "@google/genai";
 import { 
@@ -104,7 +104,9 @@ const ComMarketingSpace: React.FC<ComMarketingSpaceProps> = ({ member }) => {
   
   // État pour les modifications manuelles et la notation
   const [overrides, setOverrides] = useState<Record<string, DayOverride>>(() => {
-    const saved = localStorage.getItem('marvel_marketing_overrides_v3');
+    const saved = typeof window !== 'undefined'
+      ? localStorage.getItem('marvel_marketing_overrides_v3')
+      : null;
     return saved ? JSON.parse(saved) : {};
   });
 
@@ -125,8 +127,55 @@ const ComMarketingSpace: React.FC<ComMarketingSpaceProps> = ({ member }) => {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('marvel_marketing_overrides_v3', JSON.stringify(overrides));
+    // Persistance locale (cache navigateur)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('marvel_marketing_overrides_v3', JSON.stringify(overrides));
+    }
   }, [overrides]);
+
+  // Charger les overrides depuis le backend pour le mois affiché
+  useEffect(() => {
+    const syncFromBackend = async () => {
+      if (!member) return;
+      try {
+        const year = currentCalendarDate.getFullYear();
+        const month = currentCalendarDate.getMonth() + 1; // 1-12
+        const entries: any[] = await marketingCalendarService.getMonth(member.id, year, month);
+
+        const next: Record<string, DayOverride> = {};
+        for (const entry of entries) {
+          // entry.date est supposé être 'YYYY-MM-DD'
+          const dateObj = new Date(entry.date);
+          const dateKey = `${dateObj.getFullYear()}-${dateObj.getMonth() + 1}-${dateObj.getDate()}`;
+          const dayIdx = dateObj.getDay() === 0 ? 6 : dateObj.getDay() - 1;
+
+          next[dateKey] = {
+            studio: {
+              task: entry.studio_task || studioWeekly[dayIdx].task,
+              details: entry.studio_details || studioWeekly[dayIdx].details,
+            },
+            wedding: {
+              task: entry.wedding_task || weddingWeekly[dayIdx].task,
+              details: entry.wedding_details || weddingWeekly[dayIdx].details,
+            },
+            studioCompleted: !!entry.studio_completed,
+            studioRating: entry.studio_rating ?? undefined,
+            weddingCompleted: !!entry.wedding_completed,
+            weddingRating: entry.wedding_rating ?? undefined,
+          };
+        }
+
+        if (Object.keys(next).length > 0) {
+          setOverrides(prev => ({ ...prev, ...next }));
+        }
+      } catch (err) {
+        console.error('Erreur chargement calendrier marketing backend:', err);
+      }
+    };
+
+    syncFromBackend();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [member?.id, currentCalendarDate.getFullYear(), currentCalendarDate.getMonth()]);
 
   // --- DATA ROUTINES PAR DÉFAUT ---
   const studioWeekly = [
@@ -192,14 +241,40 @@ const ComMarketingSpace: React.FC<ComMarketingSpaceProps> = ({ member }) => {
     const dateKey = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
     const current = getTaskForDay(day);
     if (!current) return;
-    setOverrides(prev => ({
-      ...prev,
-      [dateKey]: {
-        ...(prev[dateKey] || { studio: current.studio, wedding: current.wedding }),
+
+    // Mettre à jour l'état local (et localStorage)
+    setOverrides(prev => {
+      const base = prev[dateKey] || { studio: current.studio, wedding: current.wedding };
+      const updated: DayOverride = {
+        ...base,
         [`${sector}Completed`]: true,
-        [`${sector}Rating`]: rating
+        [`${sector}Rating`]: rating,
+      } as DayOverride;
+
+      // Sauvegarde backend en parallèle (best-effort, sans bloquer l'UI)
+      if (member) {
+        const payload = {
+          memberId: member.id,
+          date: date.toISOString().split('T')[0],
+          studioTask: updated.studio.task,
+          studioDetails: updated.studio.details,
+          studioCompleted: !!updated.studioCompleted,
+          studioRating: updated.studioRating ?? null,
+          weddingTask: updated.wedding.task,
+          weddingDetails: updated.wedding.details,
+          weddingCompleted: !!updated.weddingCompleted,
+          weddingRating: updated.weddingRating ?? null,
+        };
+        marketingCalendarService
+          .upsertEntry(payload)
+          .catch(err => console.error('Erreur sauvegarde calendrier marketing:', err));
       }
-    }));
+
+      return {
+        ...prev,
+        [dateKey]: updated,
+      };
+    });
   };
 
   const handleAiGeneration = async () => {

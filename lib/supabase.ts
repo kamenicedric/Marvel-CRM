@@ -432,3 +432,114 @@ export const pointageService = {
     return data || [];
   }
 };
+
+// --- SERVICE CALENDRIER MARKETING (COM & MARKETING) ---
+// Permet de persister les missions / validations du calendrier éditorial
+// Table recommandée côté Supabase : marketing_calendar_entries
+// Colonnes (suggestion) :
+// - id uuid default uuid_generate_v4() primary key
+// - member_id uuid not null (référence team_members.id)
+// - date date not null
+// - studio_task text not null
+// - studio_details text not null
+// - studio_completed boolean default false
+// - studio_rating integer
+// - wedding_task text not null
+// - wedding_details text not null
+// - wedding_completed boolean default false
+// - wedding_rating integer
+// - created_at timestamptz default now()
+// - updated_at timestamptz default now()
+//
+// Index unique recommandé :
+//   unique (member_id, date)
+//
+// Exemple SQL (à exécuter dans Supabase) :
+//   create table if not exists public.marketing_calendar_entries (
+//     id uuid primary key default gen_random_uuid(),
+//     member_id uuid not null references public.team_members(id) on delete cascade,
+//     date date not null,
+//     studio_task text not null,
+//     studio_details text not null,
+//     studio_completed boolean default false,
+//     studio_rating integer,
+//     wedding_task text not null,
+//     wedding_details text not null,
+//     wedding_completed boolean default false,
+//     wedding_rating integer,
+//     created_at timestamptz not null default now(),
+//     updated_at timestamptz not null default now()
+//   );
+//
+//   create unique index if not exists marketing_calendar_entries_member_date_idx
+//     on public.marketing_calendar_entries(member_id, date);
+export const marketingCalendarService = {
+  async getMonth(memberId: string, year: number, month: number) {
+    // month: 1-12
+    const fromDate = new Date(year, month - 1, 1);
+    const toDate = new Date(year, month, 1);
+    const from = fromDate.toISOString().split('T')[0];
+    const to = toDate.toISOString().split('T')[0];
+
+    const { data, error } = await supabase
+      .from('marketing_calendar_entries')
+      .select('*')
+      .eq('member_id', memberId)
+      .gte('date', from)
+      .lt('date', to)
+      .order('date', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  },
+
+  async upsertEntry(payload: {
+    memberId: string;
+    date: string; // 'YYYY-MM-DD'
+    studioTask: string;
+    studioDetails: string;
+    studioCompleted: boolean;
+    studioRating: number | null;
+    weddingTask: string;
+    weddingDetails: string;
+    weddingCompleted: boolean;
+    weddingRating: number | null;
+  }) {
+    const {
+      memberId,
+      date,
+      studioTask,
+      studioDetails,
+      studioCompleted,
+      studioRating,
+      weddingTask,
+      weddingDetails,
+      weddingCompleted,
+      weddingRating,
+    } = payload;
+
+    const row = {
+      member_id: memberId,
+      date,
+      studio_task: studioTask,
+      studio_details: studioDetails,
+      studio_completed: studioCompleted,
+      studio_rating: studioRating,
+      wedding_task: weddingTask,
+      wedding_details: weddingDetails,
+      wedding_completed: weddingCompleted,
+      wedding_rating: weddingRating,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('marketing_calendar_entries')
+      .upsert(row, { onConflict: 'member_id,date' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+};
+
