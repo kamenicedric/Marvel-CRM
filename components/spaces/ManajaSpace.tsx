@@ -78,6 +78,7 @@ const ManajaSpace: React.FC<ManajaSpaceProps> = ({ onNotificationTrigger, onNoti
         delayDays: item.delay_days || 0,
         isLegacy: item.is_legacy,
         requiresSync: item.requires_sync,
+        priority: item.priority || 'low',
         formula: item.formula,
         packageType: item.package_type,
         packageDetail: item.package_detail,
