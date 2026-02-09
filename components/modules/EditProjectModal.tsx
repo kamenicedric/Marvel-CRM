@@ -17,7 +17,7 @@ interface EditProjectModalProps {
   isOpen: boolean;
   project: WeddingProject | null;
   onClose: () => void;
-  onSave: (project: WeddingProject) => void;
+  onSave: (project: WeddingProject) => Promise<void> | void;
   onArchive: (projectId: string) => void;
   onDelete: (projectId: string) => void;
 }
@@ -181,8 +181,17 @@ const EditProjectModal: React.FC<EditProjectModalProps> = ({
     if (!project || !formData.couple) return;
     setIsSubmitting(true);
     try {
-      onSave({ ...project, ...formData, updatedAt: new Date().toISOString() } as WeddingProject);
+      await onSave({
+        ...project,
+        ...formData,
+        updatedAt: new Date().toISOString(),
+      } as WeddingProject);
       onClose();
+    } catch (err: any) {
+      alert(
+        "Erreur lors de la synchronisation du dossier: " +
+          (err?.message || String(err)),
+      );
     } finally {
       setIsSubmitting(false);
     }

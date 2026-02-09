@@ -50,7 +50,10 @@ const mapToDb = (obj: any) => {
     // Visa Photo Mapping
     visaPhotoUrl: 'visa_photo_url',
     // Projects: équipe assignée (colonne créée sans guillemets → lowercase)
-    assignedTeam: 'assignedteam'
+    assignedTeam: 'assignedteam',
+    // Timestamps (camelCase -> snake_case)
+    createdAt: 'created_at',
+    updatedAt: 'updated_at'
   };
 
   Object.keys(obj).forEach(key => {
