@@ -320,6 +320,52 @@ const DvdAdminSpace: React.FC<DvdAdminSpaceProps> = ({ member, onNotificationTri
       });
   }, [projects, viewDate, matrixSearch, showOverdue]);
 
+  // --- GOUVERNANCE (PILOTAGE) : Synthèse simple sur la base des projets actuels ---
+  const governanceStats = useMemo(() => {
+    const total = projects.filter(p => p.status !== 'Archivé').length;
+    const completed = projects.filter(p => p.poleDVD?.status === 'completed').length;
+    const active = total - completed;
+
+    const now = new Date();
+    const overdue = projects.filter(p => {
+      if (p.status === 'Archivé' || p.status === 'Livré') return false;
+      const planned = p.poleDVD?.planned_date ? new Date(p.poleDVD.planned_date) : null;
+      return planned !== null && planned < now;
+    }).length;
+
+    return {
+      total,
+      completed,
+      active,
+      overdue,
+      successRate: total > 0 ? Math.round((completed / total) * 100) : 0,
+    };
+  }, [projects]);
+
+  // --- PERFORMANCE : Classement des monteurs DVD / Teaser en fonction des unités livrées ---
+  const performanceRanking = useMemo(() => {
+    if (!team.length) return [];
+    return team
+      .map(m => {
+        const firstName = m.full_name.trim().split(' ')[0].toUpperCase();
+        const assigned = projectUnits.filter(p => p.assignedTo?.toUpperCase() === firstName).length;
+        const completed = projectUnits.filter(
+          p => p.assignedTo?.toUpperCase() === firstName && p.poleDVD?.status === 'completed'
+        ).length;
+        const yieldScore = assigned > 0 ? Math.round((completed / assigned) * 100) : 0;
+        const points = completed * 10 + yieldScore;
+        return {
+          id: m.id,
+          name: m.full_name,
+          assigned,
+          completed,
+          yield: yieldScore,
+          points,
+        };
+      })
+      .sort((a, b) => b.points - a.points);
+  }, [team, projectUnits]);
+
   if (loading) return <div className="p-20 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" size={40} /><p className="mt-4 font-black uppercase text-blue-600 italic">Alignement des spécialités DVD...</p></div>;
 
   return (
@@ -378,6 +424,96 @@ const DvdAdminSpace: React.FC<DvdAdminSpaceProps> = ({ member, onNotificationTri
             );
           })}
       </div>
+
+      {activeTab === 'pilotage' && (
+        <div className="space-y-6 animate-in fade-in duration-500">
+          {/* Cartes synthèse gouvernance */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {[
+              {
+                label: 'Dossiers Totaux',
+                val: governanceStats.total,
+                icon: Inbox,
+                color: 'bg-white',
+              },
+              {
+                label: 'En Production',
+                val: governanceStats.active,
+                icon: Timer,
+                color: 'bg-white',
+              },
+              {
+                label: 'Livrés DVD',
+                val: governanceStats.completed,
+                icon: CheckCircle2,
+                color: 'bg-emerald-50',
+              },
+              {
+                label: 'En Retard',
+                val: governanceStats.overdue,
+                icon: AlertCircle,
+                color: governanceStats.overdue > 0 ? 'bg-red-50' : 'bg-slate-50',
+              },
+            ].map((k, i) => (
+              <div
+                key={i}
+                className={`${k.color} p-6 rounded-[2.5rem] border border-slate-100 shadow-sm flex items-center gap-4`}
+              >
+                <div className="p-2 rounded-xl bg-slate-50 text-blue-600">
+                  <k.icon size={20} />
+                </div>
+                <div>
+                  <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">
+                    {k.label}
+                  </p>
+                  <h3 className="text-xl font-black italic text-slate-900">{k.val}</h3>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Liste des dossiers critiques (overdue) */}
+          <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm">
+            <h3 className="text-sm font-black uppercase tracking-[0.3em] text-blue-600 mb-4 flex items-center gap-2">
+              <AlertTriangle size={16} /> Dossiers critiques (retards)
+            </h3>
+            {governanceStats.overdue === 0 ? (
+              <div className="text-slate-400 text-sm font-black uppercase italic text-center py-8">
+                Aucun retard détecté sur les dossiers DVD.
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {projects
+                  .filter(p => {
+                    if (p.status === 'Archivé' || p.status === 'Livré') return false;
+                    const planned = p.poleDVD?.planned_date ? new Date(p.poleDVD.planned_date) : null;
+                    return planned !== null && planned < new Date();
+                  })
+                  .map(p => {
+                    const plannedStr = p.poleDVD?.planned_date || p.weddingDate;
+                    return (
+                      <div
+                        key={p.id}
+                        className="p-4 rounded-2xl border border-red-100 bg-red-50/60 flex items-center justify-between"
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-red-500">
+                            Dossier en retard
+                          </span>
+                          <span className="font-bold text-slate-800 text-sm">{p.couple}</span>
+                          <span className="text-[10px] font-bold text-slate-400">
+                            Prévu le {safeFormatDate(plannedStr)}
+                          </span>
+                        </div>
+                        <ArrowRight className="text-red-400" size={16} />
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {activeTab === 'matrice' && (
         <div className="flex flex-col xl:flex-row gap-6 animate-in slide-in-from-right-4 items-start relative">
@@ -607,6 +743,61 @@ const DvdAdminSpace: React.FC<DvdAdminSpaceProps> = ({ member, onNotificationTri
                  </table>
               </div>
            </div>
+        </div>
+      )}
+
+      {activeTab === 'performance' && (
+        <div className="space-y-6 animate-in fade-in duration-500">
+          <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm">
+            <h3 className="text-sm font-black uppercase tracking-[0.3em] text-blue-600 mb-4 flex items-center gap-2">
+              <Trophy size={16} /> Performance Monteurs DVD
+            </h3>
+            {performanceRanking.length === 0 ? (
+              <div className="text-slate-400 text-sm font-black uppercase italic text-center py-8">
+                Aucune donnée de performance disponible.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                {performanceRanking.map((r, idx) => (
+                  <div
+                    key={r.id}
+                    className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col gap-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                          Rang #{idx + 1}
+                        </p>
+                        <p className="text-sm font-black italic text-slate-900">{r.name}</p>
+                      </div>
+                      <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center">
+                        {idx === 0 ? (
+                          <Trophy className="text-yellow-500" size={20} />
+                        ) : idx === 1 ? (
+                          <Medal className="text-slate-400" size={20} />
+                        ) : (
+                          <Star className="text-amber-400" size={20} />
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      <span>{r.completed} livrés</span>
+                      <span>{r.assigned} assignés</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                      <div
+                        className="h-full bg-blue-600"
+                        style={{ width: `${Math.min(100, r.yield)}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">
+                      Rendement {r.yield}%
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
