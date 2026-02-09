@@ -24,6 +24,7 @@ const mapToDb = (obj: any) => {
     guestCount: 'guest_count',
     deliveryTime: 'delivery_time',
     clientNotes: 'client_notes',
+    clientFeedbacks: 'client_feedbacks',
     packageType: 'package_type',
     packageDetail: 'package_detail',
     options: 'selected_options',
