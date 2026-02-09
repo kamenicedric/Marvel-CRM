@@ -65,9 +65,25 @@ const SandraSpace: React.FC<SandraSpaceProps> = () => {
   const [monthlyRevenueGoal, setMonthlyRevenueGoal] = useState(1500000);
   const [monthlyProfitGoal, setMonthlyProfitGoal] = useState(800000);
 
-  // Config locale (peut évoluer plus tard vers Supabase)
-  const [customTypes, setCustomTypes] = useState<string[]>(INITIAL_TYPES);
-  const [customFormulas, setCustomFormulas] = useState<string[]>(INITIAL_FORMULAS);
+  // Config locale (persistée dans localStorage pour que le bouton "Ajouter" soit réellement durable)
+  const [customTypes, setCustomTypes] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return INITIAL_TYPES;
+    try {
+      const raw = window.localStorage.getItem('sandra_custom_types_v1');
+      return raw ? JSON.parse(raw) : INITIAL_TYPES;
+    } catch {
+      return INITIAL_TYPES;
+    }
+  });
+  const [customFormulas, setCustomFormulas] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return INITIAL_FORMULAS;
+    try {
+      const raw = window.localStorage.getItem('sandra_custom_formulas_v1');
+      return raw ? JSON.parse(raw) : INITIAL_FORMULAS;
+    } catch {
+      return INITIAL_FORMULAS;
+    }
+  });
   const [newType, setNewType] = useState('');
   const [newFormula, setNewFormula] = useState('');
 
@@ -79,6 +95,25 @@ const SandraSpace: React.FC<SandraSpaceProps> = () => {
 
   // Tâches
   const [selectedSessionForTasks, setSelectedSessionForTasks] = useState<any>(null);
+
+  // Persister la configuration (types / formules) dans le navigateur
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem('sandra_custom_types_v1', JSON.stringify(customTypes));
+    } catch {
+      // silencieux : on ne bloque pas l'UI si le storage est plein
+    }
+  }, [customTypes]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem('sandra_custom_formulas_v1', JSON.stringify(customFormulas));
+    } catch {
+      // silencieux
+    }
+  }, [customFormulas]);
 
   // --- INITIALISATION via SUPABASE ---
   const fetchData = async () => {
