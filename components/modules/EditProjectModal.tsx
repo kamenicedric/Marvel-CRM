@@ -34,11 +34,35 @@ const ALL_WORKFLOWS = [
 ];
 
 const WEDDING_OPTIONS = [
-  "photo encadrée", "diffusion Jour-J", "préwedding", "magazine box", 
-  "photobooth", "videoboth", "backdrop géant", "phone box", 
-  "save the date", "shooting en studio", "drone", "manequin femme", 
-  "peignoir", "lunettes", "machine a bulles", "parapluie", 
-  "verre a champagne", "Tréteaux d'accueil", "canne"
+  'Magazine box',
+  'videobooth 360',
+  'sky videobooth',
+  "livre d’or audio",
+  'miroir photobooth',
+  'phone box',
+  'album photo',
+  "tréteau d’accueil",
+  'backdrop',
+  'tapis rouge VIP',
+  'shooting studio',
+  'drone',
+  'demande en mariage',
+  'pre wedding vidéo',
+  'filtre snapchat',
+  'save the date',
+  'peignoir',
+  'mannequin F',
+  'Mannequin H',
+  'Flûte de champagne',
+  'lunette',
+  'machine à bulle',
+  'canne',
+  'wedding magazine',
+  'parapluie',
+  'eventailles',
+  'enterrement de vie de jeune fille',
+  'agrandissement photo',
+  'projection',
 ];
 
 const CLIENT_FORMULAS = ['Mini', 'Simple', 'Classique', 'Complète', 'Rêve'];
