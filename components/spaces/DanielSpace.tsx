@@ -24,7 +24,7 @@ import {
   Scissors, Film, Mic2, AlertOctagon, Send, ChevronRight as ChevronRightIcon,
   SearchCheck, Briefcase, ArrowUpRight, Award,
   Image as ImageIcon, Fingerprint, ScanFace, Lock, Camera,
-  Bell
+  Bell, LogOut
 } from 'lucide-react';
 
 interface EmployeeSpaceProps {
@@ -501,17 +501,7 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
   const requestGeolocation = async () => {
     setAttendanceError(null);
 
-    // Vérifier si on est sur une origine sécurisée
-    const isSecureOrigin = window.location.protocol === 'https:' ||
-      window.location.hostname === 'localhost' ||
-      window.location.hostname === '127.0.0.1';
-
-    if (!isSecureOrigin) {
-      const errorMsg = 'Origine non sécurisée. Utilisez https:// ou accédez via localhost:3000';
-      setGeoStatus('fail');
-      throw new Error(errorMsg);
-    }
-
+    // Browsers natively block Geolocation on insecure origins (HTTP) except localhost.
     try {
       const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
         if (!navigator.geolocation) return reject(new Error('Geolocation non supportée'));
@@ -528,32 +518,29 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
       return { lat, lng };
     } catch (e: any) {
       setGeoStatus('fail');
+      console.error("Geolocation error:", e);
       const errorMsg = e?.message || '';
+
       if (errorMsg.includes('secure origins') || errorMsg.includes('Only secure origins')) {
-        throw new Error('Origine non sécurisée. Accédez via https://localhost:3000 ou configurez HTTPS dans Vite.');
+        // This comes from the browser itself, so we can't bypass it, but we can give a clear message
+        throw new Error('La géolocalisation nécessite une connexion sécurisée (HTTPS) ou Localhost.');
       }
+
       throw new Error(
-        errorMsg.includes('denied')
-          ? 'GPS refusé par l\'utilisateur'
+        errorMsg.includes('denied') || errorMsg.includes('User denied')
+          ? 'Accès GPS refusé par l\'utilisateur. Veuillez autoriser la localisation.'
           : errorMsg || 'GPS indisponible'
       );
     }
   };
 
+  /* REMOVED STRICT SECURE ORIGIN CHECK FOR CAMERA - BROWSERS WILL BLOCK ANYWAY IF NOT SECURE, BUT WE LET THEM HANDLE IT TO AVOID FALSE POSITIVES ON LOCAL IPs */
   const requestSelfieCamera = async () => {
     setAttendanceError(null);
+    setCameraStatus('idle');
 
-    // Vérifier si on est sur une origine sécurisée
-    const isSecureOrigin = window.location.protocol === 'https:' ||
-      window.location.hostname === 'localhost' ||
-      window.location.hostname === '127.0.0.1';
-
-    if (!isSecureOrigin) {
-      const errorMsg = 'Origine non sécurisée. Utilisez https:// ou accédez via localhost:3000';
-      setCameraStatus('fail');
-      throw new Error(errorMsg);
-    }
-
+    // Browsers natively block getUserMedia on insecure origins (HTTP) except localhost.
+    // Instead of pre-checking and blocking, we try and catch the specific error.
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user', width: 720, height: 720 },
@@ -564,11 +551,22 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
       setCameraStatus('ok');
     } catch (e: any) {
       setCameraStatus('fail');
-      const errorMsg = e?.message || '';
-      if (errorMsg.includes('secure origins') || errorMsg.includes('Only secure origins')) {
-        throw new Error('Origine non sécurisée. Accédez via https://localhost:3000 ou configurez HTTPS dans Vite.');
+      console.error("Camera error:", e);
+      const errorMsg = e?.message || e?.name || 'Erreur inconnue';
+
+      if (errorMsg.includes('PermissionDenied') || errorMsg.includes('NotAllowedError')) {
+        throw new Error('Accès caméra refusé. Vérifiez les permissions de votre navigateur (cadenas dans la barre d\'adresse).');
+      } else if (errorMsg.includes('NotFoundError') || errorMsg.includes('DevicesNotFoundError')) {
+        throw new Error('Aucune caméra trouvée.');
+      } else if (errorMsg.includes('NotReadableError') || errorMsg.includes('TrackStartError')) {
+        throw new Error('La caméra est déjà utilisée par une autre application.');
+      } else if (errorMsg.includes('OverconstrainedError')) {
+        throw new Error('La caméra ne supporte pas la résolution demandée.');
+      } else if (!window.isSecureContext) {
+        throw new Error('L\'accès caméra nécessite une connexion sécurisée (HTTPS) ou Localhost. Votre connexion actuelle n\'est pas sécurisée.');
+      } else {
+        throw new Error(`Erreur caméra: ${errorMsg}`);
       }
-      throw new Error(errorMsg.includes('denied') ? 'Accès caméra refusé par l\'utilisateur' : 'Accès caméra refusé');
     }
   };
 
@@ -578,6 +576,11 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
     if (!ctx) return null;
     selfieCanvasRef.current.width = selfieVideoRef.current.videoWidth || 720;
     selfieCanvasRef.current.height = selfieVideoRef.current.videoHeight || 720;
+
+    // Miroir horizontal pour selfie plus naturel
+    ctx.translate(selfieCanvasRef.current.width, 0);
+    ctx.scale(-1, 1);
+
     ctx.drawImage(selfieVideoRef.current, 0, 0);
     return selfieCanvasRef.current.toDataURL('image/jpeg', 0.9);
   };
@@ -1559,8 +1562,8 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
                 )}
               </div>
 
-              {attendanceEntry ? (
-                <div className={`w-full py-6 rounded-[2rem] font-black text-[10px] uppercase tracking-[0.2em] shadow-sm border flex items-center justify-center gap-3 ${attendanceEntry.status === 'PRESENT'
+              {attendanceEntry && (
+                <div className={`w-full py-6 rounded-[2rem] font-black text-[10px] uppercase tracking-[0.2em] shadow-sm border flex items-center justify-center gap-3 mb-4 ${attendanceEntry.status === 'PRESENT'
                   ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
                   : attendanceEntry.status === 'EN_RETARD'
                     ? 'bg-amber-50 border-amber-100 text-amber-700'
@@ -1571,13 +1574,23 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
                     {attendanceEntry.timestamp ? `à ${new Date(attendanceEntry.timestamp).toLocaleTimeString()}` : ''}
                   </span>
                 </div>
-              ) : (
+              )}
+
+              {!hasTodayOut && (
                 <button
                   onClick={openAttendanceFlow}
                   disabled={attendanceLoading}
-                  className="w-full py-7 rounded-[2rem] font-black text-[10px] uppercase tracking-[0.2em] shadow-xl flex items-center justify-center gap-4 transition-all hover:scale-105 active:scale-95 bg-[#006344] text-white disabled:opacity-60"
+                  className={`w-full py-7 rounded-[2rem] font-black text-[10px] uppercase tracking-[0.2em] shadow-xl flex items-center justify-center gap-4 transition-all hover:scale-105 active:scale-95 ${hasTodayIn ? 'bg-[#BD3B1B] text-white' : 'bg-[#006344] text-white'
+                    } disabled:opacity-60`}
                 >
-                  {attendanceLoading ? <Loader2 className="animate-spin" size={18} /> : <><SearchCheck size={18} /> Marquer ma présence</>}
+                  {attendanceLoading ? (
+                    <Loader2 className="animate-spin" size={18} />
+                  ) : (
+                    <>
+                      {hasTodayIn ? <LogOut size={18} /> : <SearchCheck size={18} />}
+                      {hasTodayIn ? 'Valider ma sortie' : 'Marquer ma présence'}
+                    </>
+                  )}
                 </button>
               )}
 
@@ -1844,17 +1857,17 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
                               Entrée:{' '}
                               {inTime
                                 ? inTime.toLocaleTimeString('fr-FR', {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
                                 : '—'}
                               {'  ·  '}
                               Sortie:{' '}
                               {outTime
                                 ? outTime.toLocaleTimeString('fr-FR', {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
                                 : '—'}
                             </p>
                             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">
