@@ -560,41 +560,88 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
     }
   };
 
-  /* REMOVED STRICT SECURE ORIGIN CHECK FOR CAMERA - BROWSERS WILL BLOCK ANYWAY IF NOT SECURE, BUT WE LET THEM HANDLE IT TO AVOID FALSE POSITIVES ON LOCAL IPs */
-  const requestSelfieCamera = async () => {
+  const requestSelfieCamera = async (retryCount = 0): Promise<void> => {
     setAttendanceError(null);
     setCameraStatus('idle');
 
-    // Browsers natively block getUserMedia on insecure origins (HTTP) except localhost.
-    // Instead of pre-checking and blocking, we try and catch the specific error.
+    // SECURITY CHECK
+    if (!window.isSecureContext && window.location.hostname !== 'localhost') {
+      setCameraStatus('fail');
+      throw new Error("L'accès caméra nécessite HTTPS.");
+    }
+
+    // CLEANUP any existing stream COMPLETELY
+    stopSelfieStream();
+    // Give hardware time to fully release (critical on mobile)
+    await new Promise(r => setTimeout(r, 500));
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: 720, height: 720 },
-        audio: false,
-      });
+      // Use the SIMPLEST possible constraint to avoid hardware timeout
+      // Do NOT use facingMode - it causes "Timeout starting video source" on some devices
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+
+      // Store the stream
       selfieStreamRef.current = stream;
-      if (selfieVideoRef.current) selfieVideoRef.current.srcObject = stream;
+
+      // Wait for DOM to be ready
+      await new Promise(r => setTimeout(r, 200));
+
+      const video = selfieVideoRef.current;
+      if (video) {
+        video.srcObject = stream;
+        video.muted = true;
+        video.playsInline = true;
+        try { await video.play(); } catch { }
+      }
+
       setCameraStatus('ok');
     } catch (e: any) {
-      setCameraStatus('fail');
-      console.error("Camera error:", e);
-      const errorMsg = e?.message || e?.name || 'Erreur inconnue';
+      console.error(`Camera error (attempt ${retryCount + 1}):`, e);
+      const msg = e?.message || e?.name || '';
 
-      if (errorMsg.includes('PermissionDenied') || errorMsg.includes('NotAllowedError')) {
-        throw new Error('Accès caméra refusé. Vérifiez les permissions de votre navigateur (cadenas dans la barre d\'adresse).');
-      } else if (errorMsg.includes('NotFoundError') || errorMsg.includes('DevicesNotFoundError')) {
-        throw new Error('Aucune caméra trouvée.');
-      } else if (errorMsg.includes('NotReadableError') || errorMsg.includes('TrackStartError')) {
-        throw new Error('La caméra est déjà utilisée par une autre application.');
-      } else if (errorMsg.includes('OverconstrainedError')) {
-        throw new Error('La caméra ne supporte pas la résolution demandée.');
-      } else if (!window.isSecureContext) {
-        throw new Error('L\'accès caméra nécessite une connexion sécurisée (HTTPS) ou Localhost. Votre connexion actuelle n\'est pas sécurisée.');
+      // Retry for timeout errors - hardware may need more time
+      if (msg.toLowerCase().includes('timeout') && retryCount < 2) {
+        console.log(`Camera timeout, waiting 2s then retrying... (${retryCount + 1}/3)`);
+        stopSelfieStream();
+        await new Promise(r => setTimeout(r, 2000));
+        return requestSelfieCamera(retryCount + 1);
+      }
+
+      setCameraStatus('fail');
+      if (msg.includes('NotAllowed') || msg.includes('Permission')) {
+        throw new Error('Permission caméra refusée. Cliquez sur le cadenas 🔒.');
+      } else if (msg.includes('NotFound')) {
+        throw new Error('Aucune caméra détectée.');
+      } else if (msg.includes('NotReadable')) {
+        throw new Error('Caméra occupée (Zoom/Teams ?). Fermez-les.');
+      } else if (msg.toLowerCase().includes('timeout')) {
+        throw new Error('Caméra ne répond pas. Fermez TOUTES les autres apps/onglets utilisant la caméra, puis cliquez "🔄 Relancer".');
       } else {
-        throw new Error(`Erreur caméra: ${errorMsg}`);
+        throw new Error(`Erreur caméra: ${msg}`);
       }
     }
   };
+
+  // Helper: check if the camera stream is still alive
+  const isCameraAlive = (): boolean => {
+    const stream = selfieStreamRef.current;
+    if (!stream) return false;
+    const tracks = stream.getVideoTracks();
+    return tracks.length > 0 && tracks[0].readyState === 'live';
+  };
+
+  // Cleanup on unmount only
+  useEffect(() => {
+    return () => { stopSelfieStream(); };
+  }, []);
+
+  // Cleanup when modal closes
+  useEffect(() => {
+    if (!showAttendanceModal) {
+      stopSelfieStream();
+      setCameraStatus('idle');
+    }
+  }, [showAttendanceModal]);
 
   const captureSelfiePreview = () => {
     if (!selfieVideoRef.current || !selfieCanvasRef.current) return null;
@@ -1686,8 +1733,35 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
                     <div className="space-y-4">
                       {/* Disposition horizontale sur mobile, verticale sur desktop */}
                       <div className="flex flex-row md:grid md:grid-cols-2 gap-4 items-start overflow-x-auto">
-                        <div className="rounded-3xl overflow-hidden border border-white/10 bg-black flex-shrink-0 w-[calc(50%-0.5rem)] md:w-full">
-                          <video ref={selfieVideoRef} autoPlay playsInline muted className="w-full h-40 md:h-72 object-cover" />
+                        <div className="rounded-3xl overflow-hidden border border-white/10 bg-black flex-shrink-0 w-[calc(50%-0.5rem)] md:w-full relative">
+                          <video
+                            ref={selfieVideoRef}
+                            autoPlay
+                            playsInline
+                            muted
+                            className="w-full h-40 md:h-72 object-cover"
+                          />
+                          {/* Status indicator + restart button - always visible */}
+                          <div className="absolute top-2 left-2 right-2 flex items-center justify-between">
+                            <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${isCameraAlive() ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                              }`}>
+                              <div className={`w-2 h-2 rounded-full ${isCameraAlive() ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`} />
+                              {isCameraAlive() ? 'Live' : 'Off'}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await requestSelfieCamera();
+                                } catch (e: any) {
+                                  setAttendanceError(e?.message || 'Erreur caméra');
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-full bg-white/20 text-white text-[8px] font-black uppercase tracking-widest hover:bg-[#B6C61A] hover:text-[#006344] transition-all flex items-center gap-1.5"
+                            >
+                              🔄 Relancer
+                            </button>
+                          </div>
                           <canvas ref={selfieCanvasRef} className="hidden" />
                         </div>
                         <div className="rounded-3xl overflow-hidden border border-white/10 bg-black flex-shrink-0 w-[calc(50%-0.5rem)] md:w-full">
