@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { tasksService, projectsService, biometricService, pointageService, supabase } from '../../lib/supabase.ts';
+import { tasksService, projectsService, biometricService, pointageService, payrollService, supabase } from '../../lib/supabase.ts';
 import { ProductionTask, TeamMember, WeddingProject } from '../../types.ts';
 import ProjectQuickView from '../shared/ProjectQuickView.tsx';
 import { attendanceCheckIn, attendanceCheckOut, attendanceMe, attendanceHistory, AttendanceEntry } from '../../services/attendanceApi';
@@ -71,6 +71,8 @@ interface AppNotification {
 const industrialDays = (sec: number) => (sec / (9 * 3600)).toFixed(1);
 const isOverTime = (sec: number) => sec > (27 * 3600);
 
+const MONTHS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+
 const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
   member,
   onLogout,
@@ -82,6 +84,7 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
   const [projects, setProjects] = useState<WeddingProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [quickViewProject, setQuickViewProject] = useState<WeddingProject | null>(null);
+  const [payrollEntries, setPayrollEntries] = useState<any[]>([]);
 
   // États Finance
   const currentRealMonth = new Date().getMonth();
@@ -237,12 +240,14 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
   const fetchData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [allTasks, allProjects] = await Promise.all([
+      const [allTasks, allProjects, allPayroll] = await Promise.all([
         tasksService.getAll(),
-        projectsService.getAll()
+        projectsService.getAll(),
+        payrollService.getAll()
       ]);
       setTasks(allTasks);
       setProjects(allProjects as any);
+      setPayrollEntries(allPayroll || []);
     } catch (err: any) {
       // Ignorer les erreurs AbortError (requêtes annulées)
       if (err?.name !== 'AbortError' && !err?.message?.includes('aborted') && !err?.message?.includes('signal is aborted')) {
@@ -462,16 +467,37 @@ const EmployeeSpace: React.FC<EmployeeSpaceProps> = ({
   }, [combinedMissions]);
 
   const financeData = useMemo(() => {
-    const baseSalary = 110000;
-    const allOperations = [
-      { id: 'o1', type: 'Avance', reason: 'Dépannage Taxi', amount: 5000, date: '2025-08-02', month: 7 },
-      { id: 'o2', type: 'Avance', reason: 'Frais Divers', amount: 10000, date: '2025-08-10', month: 7 },
-    ];
-    const monthOps = allOperations.filter(op => op.month === selectedFinanceMonth);
-    const totalAdvances = monthOps.filter(o => o.type === 'Avance').reduce((acc, o) => acc + (o.amount || 0), 0);
-    const netToPay = (baseSalary + (selectedFinanceMonth === currentRealMonth ? statsBonus.prime : 0)) - totalAdvances;
-    return { baseSalary, monthOps, totalAdvances, netToPay, activePrime: statsBonus.prime, isCurrentMonth: selectedFinanceMonth === currentRealMonth };
-  }, [statsBonus.prime, selectedFinanceMonth, currentRealMonth]);
+    // 1. Trouver la fiche de paie du mois sélectionné pour l'utilisateur connecté
+    const currentPayroll = payrollEntries.find(p =>
+      p.employee_id === member?.id &&
+      p.month === MONTHS[selectedFinanceMonth] &&
+      p.year === new Date().getFullYear() // Suppose année courante pour l'instant
+    );
+
+    // 2. Si fiche trouvée, utiliser ses données. Sinon par défaut / vide.
+    const baseSalary = currentPayroll ? currentPayroll.base_salary : 110000;
+    const advances = currentPayroll ? (currentPayroll.advances || 0) : 0;
+    const deductions = currentPayroll ? (currentPayroll.deductions || 0) : 0;
+
+    // 3. Reconstruire les opérations pour l'affichage (Simulation basée sur le total)
+    const allOperations = [];
+    if (advances > 0) {
+      allOperations.push({ id: 'adv-1', type: 'Avance', reason: 'Avance sur Salaire', amount: advances, date: currentPayroll?.created_at || new Date().toISOString(), month: selectedFinanceMonth });
+    }
+    if (deductions > 0) {
+      allOperations.push({ id: 'ded-1', type: 'Dette', reason: 'Remboursement Dette', amount: deductions, date: currentPayroll?.created_at || new Date().toISOString(), month: selectedFinanceMonth });
+    }
+
+    const totalAdvances = advances + deductions;
+
+    // 4. Calcul du Net à Payer : Base + Prime (Live) - Avances/Dettes
+    // NOTE : On utilise 'statsBonus.prime' (calculé en live) pour la prime, et non celle figée en base, pour garder la gamification.
+    const activePrime = selectedFinanceMonth === currentRealMonth ? statsBonus.prime : (currentPayroll?.bonus || 0);
+
+    const netToPay = (baseSalary + activePrime) - totalAdvances;
+
+    return { baseSalary, monthOps: allOperations, totalAdvances, netToPay, activePrime, isCurrentMonth: selectedFinanceMonth === currentRealMonth };
+  }, [statsBonus.prime, selectedFinanceMonth, currentRealMonth, payrollEntries, member]);
 
   // --- LOGIQUE POINTAGE AMÉLIORÉE ---
 
